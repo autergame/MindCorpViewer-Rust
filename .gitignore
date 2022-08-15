@@ -1,0 +1,14 @@
+files/*
+!files/config.json
+!files/rakan
+!files/xayah
+
+target/
+
+Cargo.lock
+
+**/*.rs.bk
+
+*.pdb
+
+.vscode/

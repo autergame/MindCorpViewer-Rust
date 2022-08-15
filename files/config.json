@@ -1,0 +1,150 @@
+{
+	"Vsync": false,
+	"ShowFloor": true,
+	"ShowSkybox": true,
+	"SynchronizedTime": true,
+	"PATHS": [
+		{
+			"Name": "Rakan",
+			"Dds": "rakan",
+			"Skn": "rakan/rakan_skin05.skn",
+			"Skl": "rakan/rakan_skin05.skl",
+			"Animations": "rakan/animations"
+		},
+		{
+			"Name": "Xayah",
+			"Dds": "xayah",
+			"Skn": "xayah/xayah_skin04.skn",
+			"Skl": "xayah/xayah_skin04.skl",
+			"Animations": "xayah/animations"
+		}
+	],
+	"CONFIGS": [
+		{
+			"Show": true,
+			"ShowWireframe": false,
+			"ShowSkeleton": false,
+			"UseAnimation": true,
+			"PlayAnimation": false,
+			"LoopAnimation": true,
+			"NextAnimation": false,
+			"AnimationTime": 7.77320,
+			"AnimationSpeed": 1.00000,
+			"SelectedAnimation": "rakan_skin05_recall_duo_full"
+		},
+		{
+			"Show": true,
+			"ShowWireframe": false,
+			"ShowSkeleton": false,
+			"UseAnimation": true,
+			"PlayAnimation": true,
+			"LoopAnimation": true,
+			"NextAnimation": false,
+			"AnimationTime": 7.77320,
+			"AnimationSpeed": 1.00000,
+			"SelectedAnimation": "xayah_skin04_recall_duo_full"
+		}
+	],
+	"MESHES": [
+		[
+			{
+				"Show": true,
+				"Skin05_Body_MAT": "rakan_skin05_tx_cm"
+			},
+			{
+				"Show": true,
+				"Skin05_Tail_MAT": "rakan_skin05_tx_cm"
+			},
+			{
+				"Show": true,
+				"Skin05_Cape_MAT": "rakan_skin05_tx_cm"
+			},
+			{
+				"Show": true,
+				"Skin05_Fur_MAT": "rakan_skin05_tx_cm"
+			},
+			{
+				"Show": false,
+				"Skin05_Mirror_MAT": "rakan_skin05_cape_light_tx_cm"
+			},
+			{
+				"Show": true,
+				"Skin05_Wing_MAT": "rakan_skin05_cape_tx_cm"
+			},
+			{
+				"Show": true,
+				"Skin05_Familiar_MAT": "rakan_skin05_familiar_tx_cm"
+			},
+			{
+				"Show": false,
+				"Skin05_Crest_MAT": "rakan_skin05_recall_tx_cm"
+			},
+			{
+				"Show": false,
+				"Skin05_Snack_MAT": "rakan_skin05_props_joke_tx_cm"
+			},
+			{
+				"Show": false,
+				"Skin05_Ult_Cape_MAT": "rakan_skin05_ult_tx_cm"
+			},
+			{
+				"Show": false,
+				"Skin05_Ult_WingsA_MAT": "rakan_skin05_ult_tx_cm"
+			},
+			{
+				"Show": false,
+				"Skin05_Ult_WingsB_MAT": "rakan_skin05_ult_tx_cm"
+			},
+			{
+				"Show": false,
+				"Skin05_Ult_Tail_MAT": "rakan_skin05_ult_tx_cm"
+			},
+			{
+				"Show": false,
+				"Skin05_Ult_Addition_MAT": "rakan_skin05_ult_tx_cm"
+			}
+		],
+		[
+			{
+				"Show": true,
+				"Xayah_Base_Mat": "xayah_skin04_tx_cm"
+			},
+			{
+				"Show": true,
+				"Xayah_Crest_Mat": "xayah_skin04_tx_cm"
+			},
+			{
+				"Show": false,
+				"Xayah_Base_Weapon_Mat": "xayah_skin04_tx_cm"
+			},
+			{
+				"Show": true,
+				"Xayah_Familiar_mat": "xayah_skin04_familiar_tx_cm"
+			},
+			{
+				"Show": true,
+				"Xayah_Base_Wing_Mat": "xayah_skin04_wing_tx_cm"
+			},
+			{
+				"Show": false,
+				"Ult_Wing_Mat": "xayah_skin04_ult_wing_tx_cm"
+			},
+			{
+				"Show": false,
+				"crest_Xayah_Base_Mat": "xayah_skin04_recall_tx_cm"
+			},
+			{
+				"Show": false,
+				"Props_Joke_Mat": "xayah_skin04_familiar_joke_tx_cm"
+			},
+			{
+				"Show": false,
+				"Xayah_Familiar_Joke_mat": "xayah_skin04_familiar_joke_tx_cm"
+			},
+			{
+				"Show": false,
+				"DeathProp_Mat": "xayah_skin04_tx_cm"
+			}
+		]
+	]
+}

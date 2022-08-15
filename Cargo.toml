@@ -1,0 +1,22 @@
+[package]
+name = "mindcorpviewer-rust"
+version = "0.1.0"
+authors = ["autergame"]
+
+[dependencies]
+byteorder = "1.4.3"
+json = "0.12.4"
+dtoa = "1.0.2"
+clap = "3.2.15"
+glob = "0.3.0"
+
+gl = "0.14.0"
+glam = "0.21.3"
+glfw = "0.45.0"
+
+imgui = "0.8.2"
+imgui-opengl-renderer = "0.11.1"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
