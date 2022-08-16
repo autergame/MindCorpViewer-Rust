@@ -14,7 +14,7 @@ pub struct Skybox {
 }
 
 impl Skybox {
-	#[inline(never)]
+    #[inline(never)]
     pub fn new() -> Skybox {
         let shader = shader::create_shader(
             Path::new("assets/skybox.vert"),
@@ -106,7 +106,7 @@ impl Skybox {
         }
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn render(&self, view_matrix: &glam::Mat4, projection_matrix: &glam::Mat4) {
         let skybox_view_matrix = glam::Mat4::from_mat3(glam::Mat3::from_mat4(*view_matrix));
         let skybox_projection_view_matrix = *projection_matrix * skybox_view_matrix;
@@ -126,7 +126,7 @@ impl Skybox {
         }
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn destroy(&self) {
         unsafe {
             gl::DeleteProgram(self.shader);

@@ -468,11 +468,11 @@ impl json::codegen::Generator for MyPrettyGenerator {
                 for item in iter {
                     if let JsonValue::Number(number) = item {
                         self.write(b", ")?;
-                        self.write_number(&number)?;
+                        self.write_number(number)?;
                     } else {
                         self.write_char(b',')?;
                         self.new_line()?;
-                        self.write_json(&item)?;
+                        self.write_json(item)?;
                     }
                 }
 

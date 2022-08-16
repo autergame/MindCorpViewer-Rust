@@ -111,7 +111,7 @@ fn main() {
         let mut model = Model::new(&skn, skl_bones_count);
         let mut line_joint = LinesJoints::new(&skl);
 
-    	model.set_shader_refs(model_shader, &model_refs);
+        model.set_shader_refs(model_shader, &model_refs);
         model.bind_ubo(model_shader, model_ubo_ref, skl_bones_count);
         line_joint.set_shader_refs(lines_joints_shader, &lines_joints_refs);
 
@@ -201,7 +201,7 @@ fn main() {
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         gl::Enable(gl::MULTISAMPLE);
         gl::Enable(gl::SAMPLE_ALPHA_TO_COVERAGE);
-		gl::PointSize(3.0f32);
+        gl::PointSize(3.0f32);
         gl::Enable(gl::DEPTH_TEST);
         gl::DepthFunc(gl::LESS);
         gl::ClearColor(0.5f32, 0.5f32, 0.5f32, 1.0f32);
@@ -308,24 +308,6 @@ fn main() {
                             ui.checkbox("Show Wireframe", &mut config.configs[j].show_wireframe);
                             ui.checkbox("Show Skeleton", &mut config.configs[j].show_skeleton);
                             ui.separator();
-                            for i in 0..skns[j].meshes.len() {
-                                let _meshes_id = ui.push_id(i as i32);
-                                ui.checkbox(skns[j].meshes[i].name.as_str(), &mut show_mesh[j][i]);
-                                if show_mesh[j][i] {
-                                    ui.combo_simple_string(
-                                        "##combo",
-                                        &mut texture_selected[j][i],
-                                        &textures_file_names[j],
-                                    );
-                                    texture_used[j][i] = textures[j][texture_selected[j][i]];
-                                    imgui::Image::new(
-                                        (texture_used[j][i] as usize + 1).into(),
-                                        [64.0f32, 64.0f32],
-                                    )
-                                    .build(&ui);
-                                }
-                            }
-                            ui.separator();
                             ui.text("Animation");
                             ui.checkbox("Use Animation", &mut config.configs[j].use_animation);
                             ui.checkbox("Play / Stop", &mut config.configs[j].play_animation);
@@ -349,6 +331,24 @@ fn main() {
                                 &mut selected_animation[j],
                                 &animations_file_names[j],
                             );
+                            ui.separator();
+                            for i in 0..skns[j].meshes.len() {
+                                let _meshes_id = ui.push_id(i as i32);
+                                ui.checkbox(skns[j].meshes[i].name.as_str(), &mut show_mesh[j][i]);
+                                if show_mesh[j][i] {
+                                    ui.combo_simple_string(
+                                        "##combo",
+                                        &mut texture_selected[j][i],
+                                        &textures_file_names[j],
+                                    );
+                                    texture_used[j][i] = textures[j][texture_selected[j][i]];
+                                    imgui::Image::new(
+                                        (texture_used[j][i] as usize + 1).into(),
+                                        [64.0f32, 64.0f32],
+                                    )
+                                    .build(&ui);
+                                }
+                            }
                         });
                 }
                 ui.separator();

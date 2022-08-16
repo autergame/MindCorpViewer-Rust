@@ -18,7 +18,7 @@ pub struct Model {
 }
 
 impl Model {
-	#[inline(never)]
+    #[inline(never)]
     pub fn new(skin: &lol::skn::Skin, skl_bones_count: usize) -> Model {
         unsafe {
             let mut vao: GLuint = 0;
@@ -26,7 +26,7 @@ impl Model {
             gl::BindVertexArray(vao);
 
             let mut vbo: Vec<GLuint> = vec![0; 4];
-			gl::GenBuffers(4, vbo.as_mut_ptr());
+            gl::GenBuffers(4, vbo.as_mut_ptr());
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo[0]);
             gl::BufferData(
@@ -108,10 +108,10 @@ impl Model {
                 diffuse_ref: 0,
                 use_bone_ref: 0,
             }
-		}
-	}
+        }
+    }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn render(
         &self,
         config: &config_json::ConfigJson,
@@ -171,7 +171,7 @@ impl Model {
         }
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn bind_ubo(
         &self,
         model_shader: GLuint,
@@ -192,7 +192,7 @@ impl Model {
         }
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn set_shader_refs(&mut self, shader: GLuint, refs: &[GLint]) {
         self.shader = shader;
         self.mvp_ref = refs[0];
@@ -200,7 +200,7 @@ impl Model {
         self.use_bone_ref = refs[2];
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn destroy(&self) {
         unsafe {
             gl::DeleteBuffers(4, self.vbo.as_ptr());

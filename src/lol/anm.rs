@@ -680,26 +680,28 @@ pub fn run_animation(
     skeleton: &lol::skl::Skeleton,
     time: f32,
 ) {
-    let mut current_frame = Vec::with_capacity(skeleton.bones.len());
-    for _ in 0..skeleton.bones.len() {
-        current_frame.push(BoneFrameIndexCache::new());
-    }
-    for animation_bone in &animation.bones {
-        let skeleton_bone = skeleton
-            .bones
-            .iter()
-            .find(|&bone| bone.hash == animation_bone.hash);
-        if let Some(bone) = skeleton_bone {
-            if bone.parent_id < 0 {
-                run_hierarchy(
-                    bone_transforms,
-                    bone,
-                    &skeleton.bones,
-                    &glam::Mat4::IDENTITY,
-                    &mut current_frame,
-                    animation,
-                    time,
-                );
+    if time <= animation.duration {
+        let mut current_frame = Vec::with_capacity(skeleton.bones.len());
+        for _ in 0..skeleton.bones.len() {
+            current_frame.push(BoneFrameIndexCache::new());
+        }
+        for animation_bone in &animation.bones {
+            let skeleton_bone = skeleton
+                .bones
+                .iter()
+                .find(|&bone| bone.hash == animation_bone.hash);
+            if let Some(bone) = skeleton_bone {
+                if bone.parent_id < 0 {
+                    run_hierarchy(
+                        bone_transforms,
+                        bone,
+                        &skeleton.bones,
+                        &glam::Mat4::IDENTITY,
+                        &mut current_frame,
+                        animation,
+                        time,
+                    );
+                }
             }
         }
     }

@@ -17,7 +17,7 @@ pub struct LinesJoints {
 }
 
 impl LinesJoints {
-	#[inline(never)]
+    #[inline(never)]
     pub fn new(skl: &lol::skl::Skeleton) -> LinesJoints {
         unsafe {
             let mut vao: GLuint = 0;
@@ -82,7 +82,7 @@ impl LinesJoints {
         }
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn render(
         &mut self,
         use_animation: bool,
@@ -150,14 +150,14 @@ impl LinesJoints {
         }
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn set_shader_refs(&mut self, shader: GLuint, refs: &[GLint]) {
         self.shader = shader;
         self.mvp_ref = refs[0];
         self.color_ref = refs[1];
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn destroy(&self) {
         unsafe {
             gl::DeleteBuffers(2, self.vbo.as_ptr());

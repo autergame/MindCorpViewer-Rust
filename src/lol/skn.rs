@@ -198,8 +198,8 @@ pub struct Skin {
 }
 
 impl Skin {
-	#[inline(never)]
-    pub fn apply_skeleton(&mut self, skeleton: & lol::skl::Skeleton) {
+    #[inline(never)]
+    pub fn apply_skeleton(&mut self, skeleton: &lol::skl::Skeleton) {
         for skin_bone_indice in self.bone_indices.iter_mut() {
             skin_bone_indice.x = skeleton.bone_indices[skin_bone_indice.x as usize];
             skin_bone_indice.y = skeleton.bone_indices[skin_bone_indice.y as usize];

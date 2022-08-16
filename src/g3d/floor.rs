@@ -14,7 +14,7 @@ pub struct Floor {
 }
 
 impl Floor {
-	#[inline(never)]
+    #[inline(never)]
     pub fn new() -> Floor {
         let shader = shader::create_shader(
             Path::new("assets/floor.vert"),
@@ -91,7 +91,7 @@ impl Floor {
         }
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn render(&self, projection_view_matrix: &glam::Mat4) {
         unsafe {
             gl::UseProgram(self.shader);
@@ -107,7 +107,7 @@ impl Floor {
         }
     }
 
-	#[inline(never)]
+    #[inline(never)]
     pub fn destroy(&self) {
         unsafe {
             gl::DeleteProgram(self.shader);
