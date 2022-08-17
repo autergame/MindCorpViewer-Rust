@@ -1,12 +1,11 @@
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-
 use std::{mem, os::raw::c_void, path::Path, ptr};
 
-use gls::{shader, texture};
+use gls::{Shader, Texture};
 
 pub struct Floor {
-    shader: GLuint,
-    texture: GLuint,
+    shader: Shader,
+    texture: Texture,
     vao: GLuint,
     vbo: GLuint,
     ebo: GLuint,
@@ -14,16 +13,14 @@ pub struct Floor {
 }
 
 impl Floor {
-    #[inline(never)]
     pub fn new() -> Floor {
-        let shader = shader::create_shader(
+        let shader = Shader::create(
             Path::new("assets/floor.vert"),
             Path::new("assets/floor.frag"),
         );
+        let refs = shader.get_refs(&["Diffuse", "MVP"]);
 
-        let texture = texture::load_dds_to_opengl(Path::new("assets/floor.dds"));
-
-        let refs = shader::get_refs_shader(shader, &["Diffuse", "MVP"]);
+        let texture = Texture::load_texture(Path::new("assets/floor.dds"));
 
         #[rustfmt::skip]
 		let floor_vertices: [GLfloat; 20] = [
@@ -40,8 +37,8 @@ impl Floor {
 		];
 
         unsafe {
-            gl::UseProgram(shader);
-            gl::Uniform1i(refs[0], texture as GLint - 1);
+            shader.enable();
+            texture.set_in_shader_ref(refs[0]);
 
             let mut vao: GLuint = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -91,10 +88,9 @@ impl Floor {
         }
     }
 
-    #[inline(never)]
     pub fn render(&self, projection_view_matrix: &glam::Mat4) {
         unsafe {
-            gl::UseProgram(self.shader);
+            self.shader.enable();
             gl::BindVertexArray(self.vao);
             gl::UniformMatrix4fv(
                 self.mvp_ref,
@@ -107,11 +103,10 @@ impl Floor {
         }
     }
 
-    #[inline(never)]
     pub fn destroy(&self) {
         unsafe {
-            gl::DeleteProgram(self.shader);
-            gl::DeleteTextures(1, &self.texture);
+            self.shader.destroy();
+            self.texture.destroy();
             gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteBuffers(1, &self.ebo);
             gl::DeleteVertexArrays(1, &self.vao);

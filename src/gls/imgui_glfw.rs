@@ -149,6 +149,10 @@ impl ImguiGLFW {
                 }
             }
         }
-        self.renderer.render(ui);
+        unsafe {
+            gl::Disable(gl::MULTISAMPLE);
+            self.renderer.render(ui);
+            gl::Enable(gl::MULTISAMPLE);
+        }
     }
 }

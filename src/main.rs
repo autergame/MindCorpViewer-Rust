@@ -11,23 +11,22 @@ extern crate glfw;
 extern crate imgui;
 
 use glfw::{Action, Context, Key};
-
-use gl::types::{GLint, GLsizei, GLuint};
-
-use std::{ffi::CString, fs::File, io::Read, os::raw::c_void, path::Path, sync::mpsc::Receiver};
+use std::{io::Read, path::Path};
 
 mod config_json;
+
+use config_json::ConfigsJson;
 
 mod g3d;
 mod gls;
 mod lol;
 
-use gls::{imgui_glfw::ImguiGLFW, shader, texture};
-
-use g3d::{floor::Floor, lines_joints::LinesJoints, model::Model, skybox::Skybox};
+use g3d::{Floor, LinesJoints, Model, Skybox};
+use gls::{ImguiGLFW, Shader, Texture};
+use lol::{Animation, Skeleton, Skin};
 
 fn main() {
-    let mut config = config_json::read_config_json();
+    let mut json_config = ConfigsJson::read(Path::new("config.json"));
 
     let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).expect("Could not init GLFW");
 
@@ -70,39 +69,35 @@ fn main() {
 
     glfw.set_swap_interval(glfw::SwapInterval::None);
 
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const c_void);
+    gl::load_with(|symbol| window.get_proc_address(symbol));
 
     let floor = Floor::new();
     let skybox = Skybox::new();
 
-    let model_shader = shader::create_shader(
+    let model_shader = Shader::create(
         Path::new("assets/model.vert"),
         Path::new("assets/model.frag"),
     );
-    let model_refs = shader::get_refs_shader(model_shader, &["MVP", "Diffuse", "UseBone"]);
-    let model_ubo_ref = unsafe {
-        let c_str_btb =
-            CString::new("BonesTransformsBlock").expect("Could not create ubo ref CString");
-        gl::GetUniformBlockIndex(model_shader, c_str_btb.as_ptr())
-    };
+    let model_refs = model_shader.get_refs(&["MVP", "Diffuse", "UseBone"]);
+    let model_ubo_ref = model_shader.get_ubo_ref("BonesTransformsBlock");
 
-    let lines_joints_shader = shader::create_shader(
+    let lines_joints_shader = Shader::create(
         Path::new("assets/lines_joints.vert"),
         Path::new("assets/lines_joints.frag"),
     );
-    let lines_joints_refs = shader::get_refs_shader(lines_joints_shader, &["MVP", "Color"]);
+    let lines_joints_refs = lines_joints_shader.get_refs(&["MVP", "Color"]);
 
-    let mut skns: Vec<lol::skn::Skin> = Vec::with_capacity(config.model_count);
-    let mut skls: Vec<lol::skl::Skeleton> = Vec::with_capacity(config.model_count);
+    let mut skns: Vec<Skin> = Vec::with_capacity(json_config.model_count);
+    let mut skls: Vec<Skeleton> = Vec::with_capacity(json_config.model_count);
 
-    let mut models: Vec<Model> = Vec::with_capacity(config.model_count);
-    let mut lines_joints: Vec<LinesJoints> = Vec::with_capacity(config.model_count);
+    let mut models: Vec<Model> = Vec::with_capacity(json_config.model_count);
+    let mut lines_joints: Vec<LinesJoints> = Vec::with_capacity(json_config.model_count);
 
-    let mut bones_transforms: Vec<Vec<glam::Mat4>> = Vec::with_capacity(config.model_count);
+    let mut bones_transforms: Vec<Vec<glam::Mat4>> = Vec::with_capacity(json_config.model_count);
 
-    for j in 0..config.model_count {
-        let mut skn = lol::skn::read_skn(&read_to_u8(Path::new(&config.paths[j].skn)));
-        let skl = lol::skl::read_skl(&read_to_u8(Path::new(&config.paths[j].skl)));
+    for j in 0..json_config.model_count {
+        let mut skn = Skin::read(&read_to_u8(Path::new(&json_config.paths[j].skn)));
+        let skl = Skeleton::read(&read_to_u8(Path::new(&json_config.paths[j].skl)));
 
         skn.apply_skeleton(&skl);
 
@@ -112,7 +107,7 @@ fn main() {
         let mut line_joint = LinesJoints::new(&skl);
 
         model.set_shader_refs(model_shader, &model_refs);
-        model.bind_ubo(model_shader, model_ubo_ref, skl_bones_count);
+        model.bind_ubo(&model_shader, model_ubo_ref, skl_bones_count);
         line_joint.set_shader_refs(lines_joints_shader, &lines_joints_refs);
 
         skns.push(skn);
@@ -124,19 +119,19 @@ fn main() {
         bones_transforms.push(vec![glam::Mat4::IDENTITY; skl_bones_count]);
     }
 
-    let mut textures: Vec<Vec<GLint>> = Vec::with_capacity(config.model_count);
-    let mut textures_file_names: Vec<Vec<String>> = Vec::with_capacity(config.model_count);
+    let mut textures: Vec<Vec<Texture>> = Vec::with_capacity(json_config.model_count);
+    let mut textures_file_names: Vec<Vec<String>> = Vec::with_capacity(json_config.model_count);
 
-    let mut texture_used: Vec<Vec<GLint>> = Vec::with_capacity(config.model_count);
-    let mut texture_selected: Vec<Vec<usize>> = Vec::with_capacity(config.model_count);
+    let mut texture_useds: Vec<Vec<Texture>> = Vec::with_capacity(json_config.model_count);
+    let mut texture_selecteds: Vec<Vec<usize>> = Vec::with_capacity(json_config.model_count);
 
-    let mut animations: Vec<Vec<lol::anm::Animation>> = Vec::with_capacity(config.model_count);
-    let mut animations_file_names: Vec<Vec<String>> = Vec::with_capacity(config.model_count);
+    let mut animations: Vec<Vec<Animation>> = Vec::with_capacity(json_config.model_count);
+    let mut animations_file_names: Vec<Vec<String>> = Vec::with_capacity(json_config.model_count);
 
-    let mut selected_animation: Vec<usize> = vec![0; config.model_count];
+    let mut selected_animation: Vec<usize> = vec![0; json_config.model_count];
 
-    for j in 0..config.model_count {
-        let dds_paths = glob::glob(format!("{}/*.dds", config.paths[j].dds).as_str())
+    for j in 0..json_config.model_count {
+        let dds_paths = glob::glob(format!("{}/*.dds", json_config.paths[j].dds).as_str())
             .expect("Failed to read glob pattern")
             .filter_map(Result::ok);
 
@@ -144,36 +139,36 @@ fn main() {
         let mut textures_file_name = Vec::new();
 
         for path in dds_paths {
-            texture.push(texture::load_dds_to_opengl(&path) as GLint - 1);
+            texture.push(Texture::load_texture(&path));
             textures_file_name.push(path.file_stem().unwrap().to_str().unwrap().to_string());
         }
 
-        let mut texture_useds: Vec<GLint> = vec![texture[0]; skns[j].meshes.len()];
-        let mut texture_selecteds: Vec<usize> = vec![0; skns[j].meshes.len()];
+        let mut texture_used: Vec<Texture> = vec![texture[0]; skns[j].meshes.len()];
+        let mut texture_selected: Vec<usize> = vec![0; skns[j].meshes.len()];
 
         for i in 0..skns[j].meshes.len() {
-            if let Some(name_position) = config.meshes[j]
+            if let Some(name_position) = json_config.meshes[j]
                 .names
                 .iter()
                 .position(|x| *x == skns[j].meshes[i].name)
             {
-                let texture_name = config.meshes[j].textures[name_position].to_string();
+                let texture_name = json_config.meshes[j].textures[name_position].to_string();
                 if let Some(texture_position) =
                     textures_file_name.iter().position(|x| *x == texture_name)
                 {
-                    texture_useds[i] = texture[texture_position];
-                    texture_selecteds[i] = texture_position;
+                    texture_used[i] = texture[texture_position];
+                    texture_selected[i] = texture_position;
                 }
             }
         }
 
-        texture_used.push(texture_useds);
-        texture_selected.push(texture_selecteds);
+        texture_useds.push(texture_used);
+        texture_selecteds.push(texture_selected);
 
         textures.push(texture);
         textures_file_names.push(textures_file_name);
 
-        let anm_paths = glob::glob(format!("{}/*.anm", config.paths[j].animations).as_str())
+        let anm_paths = glob::glob(format!("{}/*.anm", json_config.paths[j].animations).as_str())
             .expect("Failed to read glob pattern")
             .filter_map(Result::ok);
 
@@ -181,13 +176,13 @@ fn main() {
         let mut animations_file_name = Vec::new();
 
         for path in anm_paths {
-            animation.push(lol::anm::read_anm(&read_to_u8(&path)));
+            animation.push(Animation::read(&read_to_u8(&path)));
             animations_file_name.push(path.file_stem().unwrap().to_str().unwrap().to_string());
         }
 
         if let Some(animation_position) = animations_file_name
             .iter()
-            .position(|x| *x == config.configs[j].selected_animation_path)
+            .position(|x| *x == json_config.configs[j].selected_animation_path)
         {
             selected_animation[j] = animation_position;
         }
@@ -228,11 +223,12 @@ fn main() {
 
     let mut imgui_glfw = ImguiGLFW::new(&mut imgui, &mut window);
 
-    let mut show_mesh: Vec<Vec<bool>> = Vec::with_capacity(config.model_count);
+    let mut show_mesh: Vec<Vec<bool>> = Vec::with_capacity(json_config.model_count);
 
-    for j in 0..config.model_count {
+    for j in 0..json_config.model_count {
         let mut show_meshs: Vec<bool> = vec![true; skns[j].meshes.len()];
-        show_meshs[..config.meshes[j].shows.len()].copy_from_slice(&config.meshes[j].shows[..]);
+        show_meshs[..json_config.meshes[j].shows.len()]
+            .copy_from_slice(&json_config.meshes[j].shows[..]);
         show_mesh.push(show_meshs);
     }
 
@@ -286,38 +282,38 @@ fn main() {
             .bring_to_front_on_focus(false)
             .always_auto_resize(true)
             .build(&ui, || {
-                if ui.checkbox("Enable Vsync", &mut config.vsync) {
-                    glfw.set_swap_interval(match config.vsync {
+                if ui.checkbox("Enable Vsync", &mut json_config.vsync) {
+                    glfw.set_swap_interval(match json_config.vsync {
                         true => glfw::SwapInterval::Sync(1),
                         false => glfw::SwapInterval::None,
                     });
                 }
-                ui.checkbox("Show Floor", &mut config.show_floor);
-                ui.checkbox("Show Skybox", &mut config.show_skybox);
-                ui.checkbox("Synchronized Time", &mut config.synchronized_time);
+                ui.checkbox("Show Floor", &mut json_config.show_floor);
+                ui.checkbox("Show Skybox", &mut json_config.show_skybox);
+                ui.checkbox("Synchronized Time", &mut json_config.synchronized_time);
                 ui.separator();
-                for j in 0..config.model_count {
+                for j in 0..json_config.model_count {
                     let _model_id = ui.push_id(j as i32);
-                    ui.checkbox("##show", &mut config.configs[j].show);
+                    ui.checkbox("##show", &mut json_config.configs[j].show);
                     ui.same_line();
-                    imgui::TreeNode::new(config.paths[j].name.to_string())
+                    imgui::TreeNode::new(json_config.paths[j].name.to_string())
                         .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
                         .allow_item_overlap(true)
                         .framed(true)
                         .build(&ui, || {
-                            ui.checkbox("Show Wireframe", &mut config.configs[j].show_wireframe);
-                            ui.checkbox("Show Skeleton", &mut config.configs[j].show_skeleton);
+                            ui.checkbox("Show Wireframe", &mut json_config.configs[j].show_wireframe);
+                            ui.checkbox("Show Skeleton", &mut json_config.configs[j].show_skeleton);
                             ui.separator();
                             ui.text("Animation");
-                            ui.checkbox("Use Animation", &mut config.configs[j].use_animation);
-                            ui.checkbox("Play / Stop", &mut config.configs[j].play_animation);
-                            ui.checkbox("Loop Animation", &mut config.configs[j].loop_animation);
-                            ui.checkbox("Next Animation", &mut config.configs[j].next_animation);
+                            ui.checkbox("Use Animation", &mut json_config.configs[j].use_animation);
+                            ui.checkbox("Play / Stop", &mut json_config.configs[j].play_animation);
+                            ui.checkbox("Loop Animation", &mut json_config.configs[j].loop_animation);
+                            ui.checkbox("Next Animation", &mut json_config.configs[j].next_animation);
                             ui.text("CTRL+Click Change To Input");
                             imgui::Slider::new("Speed", 0.00001f32, 10.0f32)
                                 .display_format("%.5f")
                                 .flags(imgui::SliderFlags::ALWAYS_CLAMP)
-                                .build(&ui, &mut config.configs[j].animation_speed);
+                                .build(&ui, &mut json_config.configs[j].animation_speed);
                             imgui::Slider::new(
                                 "Time",
                                 0.0f32,
@@ -325,7 +321,7 @@ fn main() {
                             )
                             .display_format("%.5f")
                             .flags(imgui::SliderFlags::ALWAYS_CLAMP)
-                            .build(&ui, &mut config.configs[j].animation_time);
+                            .build(&ui, &mut json_config.configs[j].animation_time);
                             ui.combo_simple_string(
                                 "Animations",
                                 &mut selected_animation[j],
@@ -338,12 +334,12 @@ fn main() {
                                 if show_mesh[j][i] {
                                     ui.combo_simple_string(
                                         "##combo",
-                                        &mut texture_selected[j][i],
+                                        &mut texture_selecteds[j][i],
                                         &textures_file_names[j],
                                     );
-                                    texture_used[j][i] = textures[j][texture_selected[j][i]];
+                                    texture_useds[j][i] = textures[j][texture_selecteds[j][i]];
                                     imgui::Image::new(
-                                        (texture_used[j][i] as usize + 1).into(),
+                                        imgui::TextureId::new(texture_useds[j][i].unslot() as usize),
                                         [64.0f32, 64.0f32],
                                     )
                                     .build(&ui);
@@ -353,14 +349,13 @@ fn main() {
                 }
                 ui.separator();
                 if ui.button("Save Configuration") {
-                    config_json::write_config_json(
-                        &config,
+                    json_config.write(
                         &skns,
                         &show_mesh,
                         &animations_file_names,
                         &selected_animation,
                         &textures_file_names,
-                        &texture_selected,
+                        &texture_selecteds,
                     );
                 }
             });
@@ -372,73 +367,68 @@ fn main() {
 
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        }
 
-            if config.show_skybox {
-                skybox.render(&view_matrix, &projection_matrix);
-            }
+        if json_config.show_skybox {
+            skybox.render(&view_matrix, &projection_matrix);
+        }
 
-            if config.show_floor {
-                floor.render(&projection_view_matrix);
-            }
+        if json_config.show_floor {
+            floor.render(&projection_view_matrix);
+        }
 
-            for j in 0..config.model_count {
-                if config.configs[j].show {
-                    let animation_time_first = config.configs[0].animation_time;
-                    play_animation(
-                        &mut config.configs[j],
-                        &skls[j],
-                        j == 0,
-                        delta_time,
-                        config.synchronized_time,
-                        animation_time_first,
-                        &animations[j],
-                        &mut selected_animation[j],
-                        &mut bones_transforms[j],
-                    );
+        for j in 0..json_config.model_count {
+            if json_config.configs[j].show {
+                let animation_time_first = json_config.configs[0].animation_time;
+                play_animation(
+                    &mut json_config.configs[j],
+                    &skls[j],
+                    j == 0,
+                    delta_time,
+                    json_config.synchronized_time,
+                    animation_time_first,
+                    &animations[j],
+                    &mut selected_animation[j],
+                    &mut bones_transforms[j],
+                );
 
-                    models[j].render(
-                        &config.configs[j],
-                        &projection_view_matrix,
-                        &show_mesh[j],
-                        &skns[j].meshes,
-                        &texture_used[j],
+                models[j].render(
+                    &json_config.configs[j],
+                    &projection_view_matrix,
+                    &show_mesh[j],
+                    &skns[j].meshes,
+                    &texture_useds[j],
+                    &bones_transforms[j],
+                );
+
+                if json_config.configs[j].show_skeleton {
+                    lines_joints[j].render(
+                        json_config.configs[j].use_animation,
+                        &skls[j].bones,
                         &bones_transforms[j],
+                        &projection_view_matrix,
                     );
-
-                    if config.configs[j].show_skeleton {
-                        lines_joints[j].render(
-                            config.configs[j].use_animation,
-                            &skls[j].bones,
-                            &bones_transforms[j],
-                            &projection_view_matrix,
-                        );
-                    }
                 }
             }
-
-            gl::Disable(gl::MULTISAMPLE);
-            imgui_glfw.draw(ui, &mut window);
-            gl::Enable(gl::MULTISAMPLE);
         }
+
+        imgui_glfw.draw(ui, &mut window);
 
         window.swap_buffers();
     }
 
-    unsafe {
-        floor.destroy();
-        skybox.destroy();
+    floor.destroy();
+    skybox.destroy();
 
-        gl::DeleteProgram(model_shader);
-        gl::DeleteProgram(lines_joints_shader);
+    model_shader.destroy();
+    lines_joints_shader.destroy();
 
-        for j in 0..config.model_count {
-            gl::DeleteTextures(
-                textures[j].len() as GLsizei,
-                textures[j].as_ptr() as *const GLuint,
-            );
+    for j in 0..json_config.model_count {
+        models[j].destroy();
+        lines_joints[j].destroy();
 
-            models[j].destroy();
-            lines_joints[j].destroy();
+        for texture in &textures[j] {
+            texture.destroy();
         }
     }
 }
@@ -464,7 +454,7 @@ impl Mouse {
 }
 
 fn process_events(
-    events: &Receiver<(f64, glfw::WindowEvent)>,
+    events: &std::sync::mpsc::Receiver<(f64, glfw::WindowEvent)>,
     window: &mut glfw::Window,
     imgui_glfw: &mut ImguiGLFW,
     imgui: &mut imgui::Context,
@@ -504,12 +494,7 @@ fn process_events(
                 mouse.last_pos[1] = ypos;
             }
             glfw::WindowEvent::Scroll(_, yoffset) => {
-                let hovered: bool = unsafe {
-                    imgui::sys::igIsWindowHovered(
-                        imgui::WindowHoveredFlags::ANY_WINDOW.bits() as i32
-                    )
-                };
-                if !hovered {
+                if imgui_no_window_hovered() {
                     mouse.zoom -= ((yoffset as f32) * 60.0f32) * 0.5f32;
                     if mouse.zoom < 1.0f32 {
                         mouse.zoom = 1.0f32;
@@ -526,56 +511,43 @@ fn compute_matrix_from_inputs(
     yaw_pitch: &mut glam::Vec2,
     mouse: &mut Mouse,
 ) -> glam::Mat4 {
-    if mouse.state == 1 {
-        let hovered: bool = unsafe {
-            imgui::sys::igIsWindowHovered(imgui::WindowHoveredFlags::ANY_WINDOW.bits() as i32)
-        };
-        let focused: bool = unsafe {
-            imgui::sys::igIsWindowFocused(imgui::WindowHoveredFlags::ANY_WINDOW.bits() as i32)
-        };
-        if !hovered && !focused {
-            if mouse.offset[0] != mouse.last_offset[0] {
-                yaw_pitch[0] += mouse.offset[0] * 0.5f32;
-            }
-            if mouse.offset[1] != mouse.last_offset[1] {
-                yaw_pitch[1] -= mouse.offset[1] * 0.5f32;
-            }
+    if mouse.state == 1 && imgui_no_window_hovered() && imgui_no_window_focused() {
+        if mouse.offset[0] != mouse.last_offset[0] {
+            yaw_pitch[0] += mouse.offset[0] * 0.5f32;
+        }
+        if mouse.offset[1] != mouse.last_offset[1] {
+            yaw_pitch[1] -= mouse.offset[1] * 0.5f32;
+        }
 
-            if yaw_pitch[0] > 360.0f32 {
-                yaw_pitch[0] -= 360.0f32
-            } else if yaw_pitch[0] < -360.0f32 {
-                yaw_pitch[0] += 360.0f32
-            }
-            if yaw_pitch[1] > 179.0f32 {
-                yaw_pitch[1] = 179.0f32;
-            } else if yaw_pitch[1] < 1.0f32 {
-                yaw_pitch[1] = 1.0f32;
-            }
+        if yaw_pitch[0] > 360.0f32 {
+            yaw_pitch[0] -= 360.0f32
+        } else if yaw_pitch[0] < -360.0f32 {
+            yaw_pitch[0] += 360.0f32
+        }
+        if yaw_pitch[1] > 179.0f32 {
+            yaw_pitch[1] = 179.0f32;
+        } else if yaw_pitch[1] < 1.0f32 {
+            yaw_pitch[1] = 1.0f32;
         }
     }
 
-    let mut position = glam::vec3(
+    let position = glam::vec3(
         yaw_pitch[1].to_radians().sin() * yaw_pitch[0].to_radians().cos(),
         yaw_pitch[1].to_radians().cos(),
         yaw_pitch[1].to_radians().sin() * yaw_pitch[0].to_radians().sin(),
-    );
-    position = position.normalize();
+    )
+    .normalize();
 
     let right = position.cross(glam::Vec3::Y).normalize();
     let up = right.cross(position).normalize();
 
-    if mouse.state == 2 {
-        let hovered: bool = unsafe {
-            imgui::sys::igIsWindowHovered(imgui::WindowHoveredFlags::ANY_WINDOW.bits() as i32)
-        };
-        if !hovered {
-            if mouse.offset[0] != mouse.last_offset[0] {
-                translation.x -= right.x * (mouse.offset[0] * 0.35f32);
-                translation.z -= right.z * (mouse.offset[0] * 0.35f32);
-            }
-            if mouse.offset[1] != mouse.last_offset[1] {
-                translation.y -= mouse.offset[1] * 0.35f32;
-            }
+    if mouse.state == 2 && imgui_no_window_hovered() {
+        if mouse.offset[0] != mouse.last_offset[0] {
+            translation.x -= right.x * (mouse.offset[0] * 0.35f32);
+            translation.z -= right.z * (mouse.offset[0] * 0.35f32);
+        }
+        if mouse.offset[1] != mouse.last_offset[1] {
+            translation.y -= mouse.offset[1] * 0.35f32;
         }
     }
 
@@ -627,8 +599,16 @@ fn play_animation(
     }
 }
 
+fn imgui_no_window_hovered() -> bool {
+    unsafe { !imgui::sys::igIsWindowHovered(imgui::WindowHoveredFlags::ANY_WINDOW.bits() as i32) }
+}
+
+fn imgui_no_window_focused() -> bool {
+    unsafe { !imgui::sys::igIsWindowFocused(imgui::WindowHoveredFlags::ANY_WINDOW.bits() as i32) }
+}
+
 fn read_to_u8(path: &Path) -> Vec<u8> {
-    let mut file = File::open(path).expect("Could not open file");
+    let mut file = std::fs::File::open(path).expect("Could not open file");
     let mut contents: Vec<u8> = Vec::new();
     println!("Reading file: {}", path.to_str().unwrap());
     file.read_to_end(&mut contents)

@@ -1,12 +1,11 @@
 use gl::types::{GLfloat, GLint, GLsizeiptr, GLuint};
-
 use std::{mem, os::raw::c_void, path::Path, ptr};
 
-use gls::{shader, texture};
+use gls::{Shader, Texture};
 
 pub struct Skybox {
-    shader: GLuint,
-    texture: GLuint,
+    shader: Shader,
+    texture: Texture,
     vao: GLuint,
     vbo: GLuint,
     ebo: GLuint,
@@ -14,14 +13,14 @@ pub struct Skybox {
 }
 
 impl Skybox {
-    #[inline(never)]
     pub fn new() -> Skybox {
-        let shader = shader::create_shader(
+        let shader = Shader::create(
             Path::new("assets/skybox.vert"),
             Path::new("assets/skybox.frag"),
         );
+        let refs = shader.get_refs(&["Skybox", "MVP"]);
 
-        let texture = texture::load_cubemap(&[
+        let texture = Texture::load_cubemap(&[
             Path::new("assets/skybox/right.dds"),
             Path::new("assets/skybox/left.dds"),
             Path::new("assets/skybox/top.dds"),
@@ -29,8 +28,6 @@ impl Skybox {
             Path::new("assets/skybox/front.dds"),
             Path::new("assets/skybox/back.dds"),
         ]);
-
-        let refs = shader::get_refs_shader(shader, &["Skybox", "MVP"]);
 
         #[rustfmt::skip]
 		let skybox_vertices: [GLfloat; 24] = [
@@ -61,8 +58,8 @@ impl Skybox {
 		];
 
         unsafe {
-            gl::UseProgram(shader);
-            gl::Uniform1i(refs[0], texture as GLint - 1);
+            shader.enable();
+            texture.set_in_shader_ref(refs[0]);
 
             let mut vao: GLuint = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -106,13 +103,12 @@ impl Skybox {
         }
     }
 
-    #[inline(never)]
     pub fn render(&self, view_matrix: &glam::Mat4, projection_matrix: &glam::Mat4) {
         let skybox_view_matrix = glam::Mat4::from_mat3(glam::Mat3::from_mat4(*view_matrix));
         let skybox_projection_view_matrix = *projection_matrix * skybox_view_matrix;
         unsafe {
             gl::DepthFunc(gl::LEQUAL);
-            gl::UseProgram(self.shader);
+            self.shader.enable();
             gl::BindVertexArray(self.vao);
             gl::UniformMatrix4fv(
                 self.mvp_ref,
@@ -126,11 +122,10 @@ impl Skybox {
         }
     }
 
-    #[inline(never)]
     pub fn destroy(&self) {
         unsafe {
-            gl::DeleteProgram(self.shader);
-            gl::DeleteTextures(1, &self.texture);
+            self.shader.destroy();
+            self.texture.destroy();
             gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteBuffers(1, &self.ebo);
             gl::DeleteVertexArrays(1, &self.vao);

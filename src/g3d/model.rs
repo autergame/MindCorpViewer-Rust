@@ -1,25 +1,25 @@
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint, GLushort};
-
 use std::{mem, os::raw::c_void, ptr};
+
+use gls::{Shader, Texture};
 
 use config_json;
 
-use lol;
+use lol::{Mesh, Skin};
 
 pub struct Model {
     vao: GLuint,
     vbo: Vec<GLuint>,
     ubo: GLuint,
     ebo: Vec<GLuint>,
-    shader: GLuint,
+    shader: Shader,
     mvp_ref: GLint,
     diffuse_ref: GLint,
     use_bone_ref: GLint,
 }
 
 impl Model {
-    #[inline(never)]
-    pub fn new(skin: &lol::skn::Skin, skl_bones_count: usize) -> Model {
+    pub fn new(skin: &Skin, skl_bones_count: usize) -> Model {
         unsafe {
             let mut vao: GLuint = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -103,7 +103,7 @@ impl Model {
                 vbo,
                 ubo,
                 ebo,
-                shader: 0,
+                shader: Shader::new(),
                 mvp_ref: 0,
                 diffuse_ref: 0,
                 use_bone_ref: 0,
@@ -111,18 +111,17 @@ impl Model {
         }
     }
 
-    #[inline(never)]
     pub fn render(
         &self,
         config: &config_json::ConfigJson,
         projection_view_matrix: &glam::Mat4,
         show_mesh: &[bool],
-        skns_meshes: &[lol::skn::Mesh],
-        texture_used: &[GLint],
+        skns_meshes: &[Mesh],
+        texture_used: &[Texture],
         bones_transforms: &[glam::Mat4],
     ) {
         unsafe {
-            gl::UseProgram(self.shader);
+            self.shader.enable();
             gl::BindVertexArray(self.vao);
             gl::UniformMatrix4fv(
                 self.mvp_ref,
@@ -154,7 +153,7 @@ impl Model {
             }
             for i in 0..skns_meshes.len() {
                 if show_mesh[i] {
-                    gl::Uniform1i(self.diffuse_ref, texture_used[i]);
+                    texture_used[i].set_in_shader_ref(self.diffuse_ref);
                     gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo[i]);
                     gl::DrawElements(
                         gl::TRIANGLES,
@@ -171,16 +170,10 @@ impl Model {
         }
     }
 
-    #[inline(never)]
-    pub fn bind_ubo(
-        &self,
-        model_shader: GLuint,
-        model_ubo_ref: GLuint,
-        bones_transforms_size: usize,
-    ) {
+    pub fn bind_ubo(&self, shader: &Shader, ubo_ref: GLuint, bones_transforms_size: usize) {
         unsafe {
             gl::BindBuffer(gl::UNIFORM_BUFFER, self.ubo);
-            gl::UniformBlockBinding(model_shader, model_ubo_ref, 0);
+            shader.ubi_binding(ubo_ref, 0);
             gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, self.ubo);
             gl::BindBufferRange(
                 gl::UNIFORM_BUFFER,
@@ -192,15 +185,13 @@ impl Model {
         }
     }
 
-    #[inline(never)]
-    pub fn set_shader_refs(&mut self, shader: GLuint, refs: &[GLint]) {
+    pub fn set_shader_refs(&mut self, shader: Shader, refs: &[GLint]) {
         self.shader = shader;
         self.mvp_ref = refs[0];
         self.diffuse_ref = refs[1];
         self.use_bone_ref = refs[2];
     }
 
-    #[inline(never)]
     pub fn destroy(&self) {
         unsafe {
             gl::DeleteBuffers(4, self.vbo.as_ptr());

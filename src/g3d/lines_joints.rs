@@ -1,13 +1,14 @@
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-
 use std::{mem, os::raw::c_void, ptr};
 
-use lol;
+use gls::Shader;
+
+use lol::{Bone, Skeleton};
 
 pub struct LinesJoints {
     vao: GLuint,
     vbo: Vec<GLuint>,
-    pub shader: GLuint,
+    pub shader: Shader,
     pub mvp_ref: GLint,
     pub color_ref: GLint,
     pub lines: Vec<glam::Vec4>,
@@ -17,8 +18,7 @@ pub struct LinesJoints {
 }
 
 impl LinesJoints {
-    #[inline(never)]
-    pub fn new(skl: &lol::skl::Skeleton) -> LinesJoints {
+    pub fn new(skl: &Skeleton) -> LinesJoints {
         unsafe {
             let mut vao: GLuint = 0;
             gl::GenVertexArrays(2, &mut vao);
@@ -71,7 +71,7 @@ impl LinesJoints {
             LinesJoints {
                 vao,
                 vbo,
-                shader: 0,
+                shader: Shader::new(),
                 mvp_ref: 0,
                 color_ref: 0,
                 lines,
@@ -82,11 +82,10 @@ impl LinesJoints {
         }
     }
 
-    #[inline(never)]
     pub fn render(
         &mut self,
         use_animation: bool,
-        skl_bone: &[lol::skl::Bone],
+        skl_bone: &[Bone],
         bones_transforms: &[glam::Mat4],
         projection_view_matrix: &glam::Mat4,
     ) {
@@ -115,7 +114,7 @@ impl LinesJoints {
             }
 
             gl::Disable(gl::DEPTH_TEST);
-            gl::UseProgram(self.shader);
+            self.shader.enable();
             gl::Uniform1i(self.color_ref, 0);
             gl::UniformMatrix4fv(
                 self.mvp_ref,
@@ -150,14 +149,12 @@ impl LinesJoints {
         }
     }
 
-    #[inline(never)]
-    pub fn set_shader_refs(&mut self, shader: GLuint, refs: &[GLint]) {
+    pub fn set_shader_refs(&mut self, shader: Shader, refs: &[GLint]) {
         self.shader = shader;
         self.mvp_ref = refs[0];
         self.color_ref = refs[1];
     }
 
-    #[inline(never)]
     pub fn destroy(&self) {
         unsafe {
             gl::DeleteBuffers(2, self.vbo.as_ptr());

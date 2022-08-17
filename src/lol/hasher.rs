@@ -1,4 +1,3 @@
-#[inline(never)]
 pub fn fnv1a(string: &str) -> u32 {
     let mut hash = 0x811c9dc5u32;
     for c in string.chars() {
@@ -7,7 +6,6 @@ pub fn fnv1a(string: &str) -> u32 {
     hash
 }
 
-#[inline(never)]
 pub fn string_to_hash(string: &str) -> u32 {
     let mut hash = 0u32;
     for c in string.chars() {
