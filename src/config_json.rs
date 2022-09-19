@@ -1,221 +1,139 @@
-use json::{codegen::Generator, number::Number, JsonValue};
-use std::{fs::File, io::Read, io::Write, path::Path};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fs::File, io::Read, io::Write, path::Path};
 
 use lol::Skin;
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PathJson {
+    #[serde(rename = "Name")]
     pub name: String,
+
+    #[serde(rename = "DDS")]
     pub dds: String,
+
+    #[serde(rename = "SKN")]
     pub skn: String,
+
+    #[serde(rename = "SKL")]
     pub skl: String,
+
+    #[serde(rename = "Animations")]
     pub animations: String,
 }
 
-pub struct ConfigJson {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OptionsJson {
+    #[serde(rename = "Show")]
     pub show: bool,
+
+    #[serde(rename = "ShowWireframe")]
     pub show_wireframe: bool,
-    pub show_skeleton: bool,
+
+    #[serde(rename = "ShowSkeletonBones")]
+    pub show_skeleton_bones: bool,
+
+    #[serde(rename = "ShowSkeletonJoints")]
+    pub show_skeleton_joints: bool,
+
+    #[serde(rename = "UseAnimation")]
     pub use_animation: bool,
+
+    #[serde(rename = "PlayAnimation")]
     pub play_animation: bool,
+
+    #[serde(rename = "LoopAnimation")]
     pub loop_animation: bool,
+
+    #[serde(rename = "NextAnimation")]
     pub next_animation: bool,
+
+    #[serde(rename = "AnimationTime")]
     pub animation_time: f32,
+
+    #[serde(rename = "AnimationSpeed")]
     pub animation_speed: f32,
+
+    #[serde(rename = "SelectedAnimation")]
     pub selected_animation_path: String,
 }
 
-pub struct MeshesJson {
-    pub shows: Vec<bool>,
-    pub names: Vec<String>,
-    pub textures: Vec<String>,
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MeshJson {
+    #[serde(rename = "Show")]
+    pub show: bool,
+
+    #[serde(flatten)]
+    pub name_texture: std::collections::HashMap<String, String>,
 }
 
-impl MeshesJson {
-    fn new() -> MeshesJson {
-        MeshesJson {
-            shows: Vec::new(),
-            names: Vec::new(),
-            textures: Vec::new(),
-        }
-    }
-}
-
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConfigsJson {
+    #[serde(rename = "Vsync")]
     pub vsync: bool,
+
+    #[serde(rename = "ShowFloor")]
     pub show_floor: bool,
+
+    #[serde(rename = "ShowSkybox")]
     pub show_skybox: bool,
+
+    #[serde(rename = "SynchronizedTime")]
     pub synchronized_time: bool,
+
+    #[serde(skip)]
     pub model_count: usize,
+
+    #[serde(rename = "PATHS")]
     pub paths: Vec<PathJson>,
-    pub configs: Vec<ConfigJson>,
-    pub meshes: Vec<MeshesJson>,
+
+    #[serde(rename = "OPTIONS")]
+    pub options: Vec<OptionsJson>,
+
+    #[serde(rename = "MESHES")]
+    pub meshes: Vec<Vec<MeshJson>>,
 }
 
 impl ConfigsJson {
     pub fn read(path: &Path) -> ConfigsJson {
-        let mut file = File::open(path).expect("Could not open config json file");
+        let mut file = File::open(path).expect("Could not open config file");
         let mut contents = String::new();
-        println!("Reading config json file");
+        println!("Reading config file");
         file.read_to_string(&mut contents)
-            .expect("Could not read config json file");
-        println!("Finished reading config json file");
+            .expect("Could not read config file");
 
-        let json_config = json::parse(&contents).expect("Could not parse config json");
+        let mut config_json: ConfigsJson =
+            serde_json::from_str(&contents).expect("Could not deserialize config");
 
-        let vsync = json_config["Vsync"]
-            .as_bool()
-            .expect("Expected bool in Vsync");
-        let show_floor = json_config["ShowFloor"]
-            .as_bool()
-            .expect("Expected bool in ShowFloor");
-        let show_skybox = json_config["ShowSkybox"]
-            .as_bool()
-            .expect("Expected bool in ShowSkybox");
-        let synchronized_time = json_config["SynchronizedTime"]
-            .as_bool()
-            .expect("Expected bool in SynchronizedTime");
-
-        let paths_json = json_config["PATHS"].members();
-        let paths_json_count = paths_json.len();
-
-        let mut paths: Vec<PathJson> = Vec::with_capacity(paths_json_count);
-
-        for path in paths_json {
-            let name = path["Name"]
-                .as_str()
-                .expect("Expected string in Name PATHS")
-                .to_string();
-            let dds = path["Dds"]
-                .as_str()
-                .expect("Expected string in DdsPath PATHS")
-                .to_string();
-            let skn = path["Skn"]
-                .as_str()
-                .expect("Expected string in SknPath PATHS")
-                .to_string();
-            let skl = path["Skl"]
-                .as_str()
-                .expect("Expected string in SklPath PATHS")
-                .to_string();
-            let animations = path["Animations"]
-                .as_str()
-                .expect("Expected string in AnimationsPath PATHS")
-                .to_string();
-            paths.push(PathJson {
-                name,
-                dds,
-                skn,
-                skl,
-                animations,
-            });
+        if config_json.options.len() < config_json.paths.len() {
+            let diff = config_json.paths.len() - config_json.options.len();
+            let options = vec![
+                OptionsJson {
+                    show: true,
+                    show_wireframe: false,
+                    show_skeleton_bones: false,
+                    show_skeleton_joints: false,
+                    use_animation: false,
+                    play_animation: false,
+                    loop_animation: true,
+                    next_animation: false,
+                    animation_time: 0.0f32,
+                    animation_speed: 1.0f32,
+                    selected_animation_path: "".to_string()
+                };
+                diff
+            ];
+            config_json.options.extend_from_slice(&options);
         }
 
-        let configs_json = json_config["CONFIGS"].members();
-        let configs_json_count = configs_json.len();
-
-        let mut configs: Vec<ConfigJson> = Vec::with_capacity(configs_json_count);
-
-        for config in configs_json {
-            let show = config["Show"]
-                .as_bool()
-                .expect("Expected bool in Show CONFIG");
-            let show_wireframe = config["ShowWireframe"]
-                .as_bool()
-                .expect("Expected bool in ShowWireframe CONFIG");
-            let show_skeleton = config["ShowSkeleton"]
-                .as_bool()
-                .expect("Expected bool in ShowSkeleton CONFIG");
-            let use_animation = config["UseAnimation"]
-                .as_bool()
-                .expect("Expected bool in UseAnimation CONFIG");
-            let play_animation = config["PlayAnimation"]
-                .as_bool()
-                .expect("Expected bool in PlayAnimation CONFIG");
-            let loop_animation = config["LoopAnimation"]
-                .as_bool()
-                .expect("Expected bool in LoopAnimation CONFIG");
-            let next_animation = config["NextAnimation"]
-                .as_bool()
-                .expect("Expected bool in NextAnimation CONFIG");
-            let animation_time = config["AnimationTime"]
-                .as_f32()
-                .expect("Expected f32 in AnimationTime CONFIG");
-            let animation_speed = config["AnimationSpeed"]
-                .as_f32()
-                .expect("Expected f32 in AnimationSpeed CONFIG");
-            let selected_animation_path = config["SelectedAnimation"]
-                .as_str()
-                .expect("Expected string in SelectedAnimation CONFIG")
-                .to_string();
-            configs.push(ConfigJson {
-                show,
-                show_wireframe,
-                show_skeleton,
-                use_animation,
-                play_animation,
-                loop_animation,
-                next_animation,
-                animation_time,
-                animation_speed,
-                selected_animation_path,
-            });
+        if config_json.meshes.len() < config_json.paths.len() {
+            let diff = config_json.paths.len() - config_json.meshes.len();
+            let meshes = vec![vec![]; diff];
+            config_json.meshes.extend_from_slice(&meshes);
         }
 
-        if paths_json_count != configs_json_count {
-            panic!("PATHS and CONFIGS must have the same count");
-        }
+        config_json.model_count = config_json.paths.len();
 
-        let meshes_json = json_config["MESHES"].members();
-        let meshes_json_count = meshes_json.len();
-
-        let mut meshes: Vec<MeshesJson> = Vec::with_capacity(meshes_json_count);
-
-        for model in meshes_json {
-            let mut names: Vec<String> = Vec::new();
-            let mut textures: Vec<String> = Vec::new();
-            let mut shows: Vec<bool> = Vec::new();
-
-            for mesh in model.members() {
-                let mut iter = mesh.entries();
-                shows.push(
-                    iter.next()
-                        .expect("Expected name texture")
-                        .1
-                        .as_bool()
-                        .expect("Expected bool in Show MESHES"),
-                );
-                let name_texture = iter.next().expect("Expected name texture MESHES");
-                names.push(name_texture.0.to_string());
-                textures.push(
-                    name_texture
-                        .1
-                        .as_str()
-                        .expect("Expected string in texture MESHES")
-                        .to_string(),
-                );
-            }
-
-            meshes.push(MeshesJson {
-                names,
-                textures,
-                shows,
-            });
-        }
-
-        for _ in 0..paths_json_count - meshes_json_count {
-            meshes.push(MeshesJson::new());
-        }
-
-        ConfigsJson {
-            vsync,
-            show_floor,
-            show_skybox,
-            synchronized_time,
-            model_count: paths_json_count,
-            paths,
-            configs,
-            meshes,
-        }
+        config_json
     }
 
     pub fn write(
@@ -227,284 +145,41 @@ impl ConfigsJson {
         textures_file_names: &[Vec<String>],
         texture_selected: &[Vec<usize>],
     ) {
-        let mut config_json = JsonValue::new_object();
+        let mut config_json = self.clone();
 
         config_json
-            .insert("Vsync", JsonValue::Boolean(self.vsync))
-            .unwrap();
-        config_json
-            .insert("ShowFloor", JsonValue::Boolean(self.show_floor))
-            .unwrap();
-        config_json
-            .insert("ShowSkybox", JsonValue::Boolean(self.show_skybox))
-            .unwrap();
-        config_json
-            .insert(
-                "SynchronizedTime",
-                JsonValue::Boolean(self.synchronized_time),
-            )
-            .unwrap();
+            .options
+            .iter_mut()
+            .enumerate()
+            .for_each(|(j, config)| {
+                config.selected_animation_path =
+                    animations_file_names[j][selected_animation[j]].to_string()
+            });
 
-        let mut paths = JsonValue::new_array();
-        for j in 0..self.model_count {
-            let mut object = JsonValue::new_object();
-            object
-                .insert("Name", JsonValue::String(self.paths[j].name.to_string()))
-                .unwrap();
-            object
-                .insert("Dds", JsonValue::String(self.paths[j].dds.to_string()))
-                .unwrap();
-            object
-                .insert("Skn", JsonValue::String(self.paths[j].skn.to_string()))
-                .unwrap();
-            object
-                .insert("Skl", JsonValue::String(self.paths[j].skl.to_string()))
-                .unwrap();
-            object
-                .insert(
-                    "Animations",
-                    JsonValue::String(self.paths[j].animations.to_string()),
-                )
-                .unwrap();
-            paths.push(object).unwrap();
-        }
-        config_json.insert("PATHS", paths).unwrap();
-
-        let mut configs = JsonValue::new_array();
-        for j in 0..self.model_count {
-            let mut object = JsonValue::new_object();
-            object
-                .insert("Show", JsonValue::Boolean(self.configs[j].show))
-                .unwrap();
-            object
-                .insert(
-                    "ShowWireframe",
-                    JsonValue::Boolean(self.configs[j].show_wireframe),
-                )
-                .unwrap();
-            object
-                .insert(
-                    "ShowSkeleton",
-                    JsonValue::Boolean(self.configs[j].show_skeleton),
-                )
-                .unwrap();
-            object
-                .insert(
-                    "UseAnimation",
-                    JsonValue::Boolean(self.configs[j].use_animation),
-                )
-                .unwrap();
-            object
-                .insert(
-                    "PlayAnimation",
-                    JsonValue::Boolean(self.configs[j].play_animation),
-                )
-                .unwrap();
-            object
-                .insert(
-                    "LoopAnimation",
-                    JsonValue::Boolean(self.configs[j].loop_animation),
-                )
-                .unwrap();
-            object
-                .insert(
-                    "NextAnimation",
-                    JsonValue::Boolean(self.configs[j].next_animation),
-                )
-                .unwrap();
-            object
-                .insert("AnimationTime", from_f32(self.configs[j].animation_time))
-                .unwrap();
-            object
-                .insert("AnimationSpeed", from_f32(self.configs[j].animation_speed))
-                .unwrap();
-            object
-                .insert(
-                    "SelectedAnimation",
-                    JsonValue::String(animations_file_names[j][selected_animation[j]].to_string()),
-                )
-                .unwrap();
-            configs.push(object).unwrap();
-        }
-        config_json.insert("CONFIGS", configs).unwrap();
-
-        let mut meshes = JsonValue::new_array();
-        for j in 0..self.model_count {
-            let mut array = JsonValue::new_array();
+        let mut model_meshes = Vec::with_capacity(config_json.model_count);
+        for j in 0..config_json.model_count {
+            let mut meshes = Vec::with_capacity(skns[j].meshes.len());
             for i in 0..skns[j].meshes.len() {
-                let mut object = JsonValue::new_object();
-                object
-                    .insert("Show", JsonValue::Boolean(show_mesh[j][i]))
-                    .unwrap();
-                object
-                    .insert(
-                        skns[j].meshes[i].name.as_str(),
-                        JsonValue::String(
-                            textures_file_names[j][texture_selected[j][i]].to_string(),
-                        ),
-                    )
-                    .unwrap();
-                array.push(object).unwrap();
+                let mut name_texture = HashMap::new();
+                name_texture.insert(
+                    skns[j].meshes[i].submesh.name.to_string(),
+                    textures_file_names[j][texture_selected[j][i]].to_string(),
+                );
+                meshes.push(MeshJson {
+                    show: show_mesh[j][i],
+                    name_texture,
+                });
             }
-            meshes.push(array).unwrap();
+            model_meshes.push(meshes);
         }
-        config_json.insert("MESHES", meshes).unwrap();
+        config_json.meshes = model_meshes;
 
-        let mut gen = MyPrettyGenerator::new();
-        gen.write_json(&config_json).expect("Could not write json");
-        let contents = gen.consume();
+        let contents = serde_json::to_string_pretty(&config_json).unwrap();
 
         let mut file =
-            File::create(Path::new("config.json")).expect("Could not create config json file");
-        println!("Writing to config json file");
+            File::create(Path::new("config.json")).expect("Could not create config file");
+        println!("Writing to config file");
         file.write_all(contents.as_bytes())
-            .expect("Could not write to config json file");
-        println!("Finished writing to config json file");
+            .expect("Could not write to config file");
     }
-}
-
-pub struct MyPrettyGenerator {
-    buf: Vec<u8>,
-    dent: u16,
-}
-
-impl MyPrettyGenerator {
-    pub fn new() -> MyPrettyGenerator {
-        MyPrettyGenerator {
-            buf: Vec::with_capacity(1024),
-            dent: 0,
-        }
-    }
-
-    pub fn consume(self) -> String {
-        String::from_utf8(self.buf).expect("JSON have invalid UTF-8")
-    }
-}
-
-impl json::codegen::Generator for MyPrettyGenerator {
-    type T = Vec<u8>;
-
-    #[inline(always)]
-    fn get_writer(&mut self) -> &mut Vec<u8> {
-        &mut self.buf
-    }
-
-    #[inline(always)]
-    fn write(&mut self, slice: &[u8]) -> std::io::Result<()> {
-        std::io::Write::write_all(&mut self.get_writer(), slice)
-    }
-
-    #[inline(always)]
-    fn write_char(&mut self, ch: u8) -> std::io::Result<()> {
-        self.write(&[ch])
-    }
-
-    #[inline(always)]
-    fn write_min(&mut self, slice: &[u8], _: u8) -> std::io::Result<()> {
-        self.write(slice)
-    }
-
-    #[inline(always)]
-    fn new_line(&mut self) -> std::io::Result<()> {
-        self.write_char(b'\n')?;
-        for _ in 0..self.dent {
-            self.write_char(b'\t')?;
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn indent(&mut self) {
-        self.dent += 1;
-    }
-
-    #[inline(always)]
-    fn dedent(&mut self) {
-        self.dent -= 1;
-    }
-
-    fn write_number(&mut self, num: &Number) -> std::io::Result<()> {
-        let (positive, mantissa, exponent) = num.as_parts();
-        if exponent >= 0 {
-            if positive {
-                self.write(format!("{}", mantissa).as_bytes())
-            } else {
-                self.write(format!("{}", -(mantissa as i64)).as_bytes())
-            }
-        } else {
-            let float = f32::from_bits(mantissa as u32);
-            let float_str = format!("{:1.5}", float);
-            self.write(float_str.as_bytes())
-        }
-    }
-
-    fn write_json(&mut self, json: &JsonValue) -> std::io::Result<()> {
-        match *json {
-            JsonValue::Null => self.write(b"null"),
-            JsonValue::Short(ref short) => self.write_string(short.as_str()),
-            JsonValue::String(ref string) => self.write_string(string),
-            JsonValue::Number(ref number) => self.write_number(number),
-            JsonValue::Boolean(true) => self.write(b"true"),
-            JsonValue::Boolean(false) => self.write(b"false"),
-            JsonValue::Array(ref array) => {
-                self.write_char(b'[')?;
-                let mut iter = array.iter();
-
-                if let Some(item) = iter.next() {
-                    self.indent();
-                    self.new_line()?;
-                    self.write_json(item)?;
-                } else {
-                    self.write_char(b']')?;
-                    return Ok(());
-                }
-
-                for item in iter {
-                    if let JsonValue::Number(number) = item {
-                        self.write(b", ")?;
-                        self.write_number(number)?;
-                    } else {
-                        self.write_char(b',')?;
-                        self.new_line()?;
-                        self.write_json(item)?;
-                    }
-                }
-
-                self.dedent();
-                self.new_line()?;
-                self.write_char(b']')
-            }
-            JsonValue::Object(ref object) => {
-                self.write_char(b'{')?;
-                let mut iter = object.iter();
-
-                if let Some((key, value)) = iter.next() {
-                    self.indent();
-                    self.new_line()?;
-                    self.write_string(key)?;
-                    self.write(b": ")?;
-                    self.write_json(value)?;
-                } else {
-                    self.write_char(b'}')?;
-                    return Ok(());
-                }
-
-                for (key, value) in iter {
-                    self.write_char(b',')?;
-                    self.new_line()?;
-                    self.write_string(key)?;
-                    self.write(b": ")?;
-                    self.write_json(value)?;
-                }
-
-                self.dedent();
-                self.new_line()?;
-                self.write_char(b'}')
-            }
-        }
-    }
-}
-
-fn from_f32(float: f32) -> JsonValue {
-    JsonValue::Number(unsafe { Number::from_parts_unchecked(false, float.to_bits() as u64, -1) })
 }

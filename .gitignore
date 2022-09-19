@@ -1,14 +1,11 @@
-files/*
-!files/config.json
-!files/rakan
-!files/xayah
+cross_compile.sh
+
+files/
 
 target/
 
 Cargo.lock
 
 **/*.rs.bk
-
-*.pdb
 
 .vscode/

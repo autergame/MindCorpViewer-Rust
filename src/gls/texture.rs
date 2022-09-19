@@ -1,7 +1,8 @@
 use gl::types::{GLint, GLubyte, GLuint};
+
 use std::{
     fs::File,
-    io::{Cursor, Read},
+    io::{BufReader, Read, Seek, SeekFrom},
     os::raw::c_void,
     path::Path,
 };
@@ -15,26 +16,17 @@ pub struct Texture {
 
 impl Texture {
     fn load_dds(path: &Path) -> (Vec<u8>, u32, i32, i32, i32) {
-        let mut file = File::open(path).expect("Could not open DDS file");
-        let mut contents: Vec<u8> = Vec::new();
-        println!("Reading DDS file: {}", path.to_str().unwrap());
-        file.read_to_end(&mut contents)
-            .expect("Could not read DDS file");
-        println!("Finished reading DDS file");
-
-        let mut reader = Cursor::new(contents);
+        let mut reader = BufReader::new(File::open(path).expect("Could not open DDS file"));
 
         let mut signature = vec![0u8; 4];
         reader
             .read_exact(&mut signature)
             .expect("Could not read DDS signature");
-        let signature = String::from_utf8(signature).expect("Invalid UTF-8 sequence");
-
-        if signature != "DDS " {
-            panic!("Dds has no valid signature");
+        if signature != b"DDS "[..] {
+            panic!("DDS has no valid signature");
         }
 
-        reader.set_position(12);
+        reader.seek(SeekFrom::Current(8)).unwrap();
 
         let height = reader
             .read_i32::<LittleEndian>()
@@ -43,32 +35,33 @@ impl Texture {
             .read_i32::<LittleEndian>()
             .expect("Could not read DDS width");
 
-        reader.set_position(28);
+        reader.seek(SeekFrom::Current(8)).unwrap();
 
         let mipmap_count = reader
             .read_i32::<LittleEndian>()
             .expect("Could not read DDS mipmap count");
 
-        reader.set_position(84);
+        reader.seek(SeekFrom::Current(52)).unwrap();
 
         let mut ddspf_fourcc = vec![0u8; 4];
         reader
             .read_exact(&mut ddspf_fourcc)
             .expect("Could not read DDS pixel format fourcc");
-        let ddspf_fourcc = String::from_utf8(ddspf_fourcc).expect("Invalid UTF-8 sequence");
 
         let format: u32;
-        if ddspf_fourcc == "DXT5" {
+        if ddspf_fourcc == b"DXT5"[..] {
             format = 0x83F3;
-        } else if ddspf_fourcc == "DXT3" {
+        } else if ddspf_fourcc == b"DXT3"[..] {
             format = 0x83F2;
-        } else {
+        } else if ddspf_fourcc == b"DXT1"[..] {
             format = 0x83F1;
+        } else {
+            panic!("Unknown DDS pixel format fourcc");
         }
 
-        reader.set_position(128);
+        reader.seek(SeekFrom::Start(128)).unwrap();
 
-        let mut image_data = Vec::new();
+        let mut image_data = vec![];
         reader
             .read_to_end(&mut image_data)
             .expect("Could not read DDS image data");

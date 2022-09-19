@@ -5,23 +5,35 @@ use gls::Shader;
 
 use lol::{Bone, Skeleton};
 
-pub struct LinesJoints {
+pub struct Lines {
     vao: GLuint,
     vbo: Vec<GLuint>,
     pub shader: Shader,
     pub mvp_ref: GLint,
-    pub color_ref: GLint,
     pub lines: Vec<glam::Vec4>,
-    pub joints: Vec<glam::Vec4>,
     pub lines_tpose: Vec<glam::Vec4>,
-    pub joints_tpose: Vec<glam::Vec4>,
 }
 
-impl LinesJoints {
-    pub fn new(skl: &Skeleton) -> LinesJoints {
+impl Lines {
+    pub fn new(skl: &Skeleton) -> Lines {
         unsafe {
+            let mut lines: Vec<glam::Vec4> = Vec::with_capacity(skl.bones.len() * 2);
+            let mut colors: Vec<glam::Vec3> = Vec::with_capacity(skl.bones.len() * 2);
+
+            for bone in &skl.bones {
+                let parent_id = bone.parent_id;
+                if parent_id != -1 {
+                    lines.push(skl.bones[parent_id as usize].global_matrix * glam::Vec4::ONE);
+                    lines.push(bone.global_matrix * glam::Vec4::ONE);
+                    colors.push(glam::vec3(0.0f32, 1.0f32, 0.0f32));
+                    colors.push(glam::vec3(0.0f32, 0.0f32, 1.0f32));
+                }
+            }
+
+            let lines_tpose = lines.clone();
+
             let mut vao: GLuint = 0;
-            gl::GenVertexArrays(2, &mut vao);
+            gl::GenVertexArrays(1, &mut vao);
             gl::BindVertexArray(vao);
 
             let mut vbo: Vec<GLuint> = vec![0; 2];
@@ -31,53 +43,33 @@ impl LinesJoints {
             gl::BufferData(
                 gl::ARRAY_BUFFER,
                 (skl.bones.len() * 2 * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
-                ptr::null(),
+                lines.as_ptr() as *const c_void,
                 gl::DYNAMIC_DRAW,
             );
 
             gl::EnableVertexAttribArray(0);
             gl::VertexAttribPointer(0, 4, gl::FLOAT, gl::FALSE, 0, ptr::null());
-
-            gl::BindVertexArray(vao + 1);
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo[1]);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (skl.bones.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
-                ptr::null(),
-                gl::DYNAMIC_DRAW,
+                (skl.bones.len() * 2 * mem::size_of::<glam::Vec3>()) as GLsizeiptr,
+                colors.as_ptr() as *const c_void,
+                gl::STATIC_DRAW,
             );
 
-            gl::EnableVertexAttribArray(0);
-            gl::VertexAttribPointer(0, 4, gl::FLOAT, gl::FALSE, 0, ptr::null());
+            gl::EnableVertexAttribArray(1);
+            gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, 0, ptr::null());
 
             gl::BindVertexArray(0);
 
-            let mut lines: Vec<glam::Vec4> = Vec::with_capacity(skl.bones.len() * 2);
-            let mut joints: Vec<glam::Vec4> = Vec::with_capacity(skl.bones.len());
-
-            for bone in &skl.bones {
-                let parent_id = bone.parent_id;
-                if parent_id != -1 {
-                    lines.push(skl.bones[parent_id as usize].global_matrix * glam::Vec4::ONE);
-                    lines.push(bone.global_matrix * glam::Vec4::ONE);
-                }
-                joints.push(bone.global_matrix * glam::Vec4::ONE);
-            }
-
-            let lines_tpose = lines.clone();
-            let joints_tpose = joints.clone();
-
-            LinesJoints {
+            Lines {
                 vao,
                 vbo,
                 shader: Shader::new(),
                 mvp_ref: 0,
-                color_ref: 0,
                 lines,
-                joints,
                 lines_tpose,
-                joints_tpose,
             }
         }
     }
@@ -91,7 +83,6 @@ impl LinesJoints {
     ) {
         unsafe {
             let mut lines_ptr = self.lines.as_ptr();
-            let mut joints_ptr = self.joints.as_ptr();
 
             if use_animation {
                 let mut line_index: usize = 0;
@@ -105,17 +96,14 @@ impl LinesJoints {
                             bones_transforms[i] * skl_bone[i].global_matrix * glam::Vec4::ONE;
                         line_index += 2;
                     }
-                    self.joints[i] =
-                        bones_transforms[i] * skl_bone[i].global_matrix * glam::Vec4::ONE;
                 }
             } else {
                 lines_ptr = self.lines_tpose.as_ptr();
-                joints_ptr = self.joints_tpose.as_ptr();
             }
 
             gl::Disable(gl::DEPTH_TEST);
             self.shader.enable();
-            gl::Uniform1i(self.color_ref, 0);
+
             gl::UniformMatrix4fv(
                 self.mvp_ref,
                 1,
@@ -133,17 +121,6 @@ impl LinesJoints {
             );
             gl::DrawArrays(gl::LINES, 0, self.lines.len() as GLsizei);
 
-            gl::Uniform1i(self.color_ref, 1);
-
-            gl::BindVertexArray(self.vao + 1);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo[1]);
-            gl::BufferSubData(
-                gl::ARRAY_BUFFER,
-                0,
-                (self.joints.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
-                joints_ptr as *const c_void,
-            );
-            gl::DrawArrays(gl::POINTS, 0, self.joints.len() as GLsizei);
             gl::BindVertexArray(0);
             gl::Enable(gl::DEPTH_TEST);
         }
@@ -152,13 +129,12 @@ impl LinesJoints {
     pub fn set_shader_refs(&mut self, shader: Shader, refs: &[GLint]) {
         self.shader = shader;
         self.mvp_ref = refs[0];
-        self.color_ref = refs[1];
     }
 
     pub fn destroy(&self) {
         unsafe {
             gl::DeleteBuffers(2, self.vbo.as_ptr());
-            gl::DeleteVertexArrays(2, &self.vao);
+            gl::DeleteVertexArrays(1, &self.vao);
         }
     }
 }

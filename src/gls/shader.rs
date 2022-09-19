@@ -42,8 +42,6 @@ impl Shader {
                 println!("Could not load shader\n{}", info_log.to_string_lossy());
             }
 
-            println!("Finished reading shader file");
-
             shader
         }
     }

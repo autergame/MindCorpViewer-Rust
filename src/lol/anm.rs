@@ -1,12 +1,12 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     io::{Cursor, Read},
 };
 
 use gls::glam_read;
 
-use lol::{hasher, Bone, Skeleton};
+use lol::{hasher, Skeleton};
 
 enum FrameDataType {
     Rotation = 0,
@@ -53,19 +53,14 @@ impl Animation {
         reader
             .read_exact(&mut signature)
             .expect("Could not read ANM signature");
-        let signature = String::from_utf8(signature).expect("Invalid UTF-8 sequence");
 
-        if signature != "r3d2anmd" && signature != "r3d2canm" {
-            panic!("ANM has no valid signature");
-        }
+        if signature == b"r3d2canm"[..] {
+            Self::read_compressed(&mut reader)
+        } else if signature == b"r3d2anmd"[..] {
+            let version = reader
+                .read_u32::<LittleEndian>()
+                .expect("Could not read ANM version");
 
-        let version = reader
-            .read_u32::<LittleEndian>()
-            .expect("Could not read ANM version");
-
-        if signature == "r3d2canm" {
-            Self::read_compressed(&mut reader, version)
-        } else if signature == "r3d2anmd" {
             if version == 5 {
                 Self::read_v5(&mut reader)
             } else if version == 4 {
@@ -78,7 +73,11 @@ impl Animation {
         }
     }
 
-    fn read_compressed(reader: &mut Cursor<&Vec<u8>>, version: u32) -> Animation {
+    fn read_compressed(reader: &mut Cursor<&Vec<u8>>) -> Animation {
+        let version = reader
+            .read_u32::<LittleEndian>()
+            .expect("Could not read ANM version");
+
         reader.set_position(reader.position() + 12);
 
         let bone_count = reader
@@ -129,12 +128,9 @@ impl Animation {
 
         reader.set_position((entries_offset + 12) as u64);
 
-        let mut compressed_translations: HashMap<u8, Vec<(u16, u64)>> =
-            HashMap::with_capacity(bone_count as usize);
-        let mut compressed_scales: HashMap<u8, Vec<(u16, u64)>> =
-            HashMap::with_capacity(bone_count as usize);
-        let mut compressed_rotations: HashMap<u8, Vec<(u16, u64)>> =
-            HashMap::with_capacity(bone_count as usize);
+        let mut compressed_translations: BTreeMap<u8, Vec<(u16, u64)>> = BTreeMap::new();
+        let mut compressed_scales: BTreeMap<u8, Vec<(u16, u64)>> = BTreeMap::new();
+        let mut compressed_rotations: BTreeMap<u8, Vec<(u16, u64)>> = BTreeMap::new();
         for _ in 0..entry_count {
             let compressed_time = reader
                 .read_u16::<LittleEndian>()
@@ -174,9 +170,9 @@ impl Animation {
         for i in 0..bone_count {
             let mut bone_anm = BoneAnm {
                 hash: hash_entries[i as usize],
-                translations: Vec::new(),
-                rotations: Vec::new(),
-                scales: Vec::new(),
+                translations: vec![],
+                rotations: vec![],
+                scales: vec![],
             };
 
             let compressed_translation = compressed_translations
@@ -191,7 +187,6 @@ impl Animation {
 
             for (compressed_time, compressed_data) in compressed_translation {
                 let uncompressed_time = uncompress_time(*compressed_time, duration);
-
                 let uncompressed_translation =
                     uncompress_vec3(translation_min, translation_max, *compressed_data);
 
@@ -202,7 +197,6 @@ impl Animation {
 
             for (compressed_time, compressed_data) in compressed_scale {
                 let uncompressed_time = uncompress_time(*compressed_time, duration);
-
                 let uncompressed_scale = uncompress_vec3(scale_min, scale_max, *compressed_data);
 
                 bone_anm
@@ -212,7 +206,6 @@ impl Animation {
 
             for (compressed_time, compressed_data) in compressed_rotation {
                 let uncompressed_time = uncompress_time(*compressed_time, duration);
-
                 let uncompressed_rotation = uncompress_quaternion(*compressed_data);
 
                 bone_anm
@@ -308,9 +301,9 @@ impl Animation {
         for i in 0..bone_count {
             bones.push(BoneAnm {
                 hash: hashes[i as usize],
-                translations: Vec::new(),
-                rotations: Vec::new(),
-                scales: Vec::new(),
+                translations: vec![],
+                rotations: vec![],
+                scales: vec![],
             })
         }
 
@@ -401,8 +394,7 @@ impl Animation {
 
         reader.set_position((frame_offset + 12) as u64);
 
-        let mut bone_map: HashMap<u32, Vec<FrameIndices>> =
-            HashMap::with_capacity(bone_count as usize);
+        let mut bone_map: BTreeMap<u32, Vec<FrameIndices>> = BTreeMap::new();
         for _ in 0..bone_count {
             for _ in 0..frame_count {
                 let bone_hash = reader
@@ -580,25 +572,12 @@ fn uncompress_vec3(min: glam::Vec3, max: glam::Vec3, data: u64) -> glam::Vec3 {
     uncompressed + min
 }
 
-fn find_in_nearest_time<'a, T>(
-    vector: &'a Vec<(f32, T)>,
-    index: &mut usize,
-    time: f32,
-) -> (&'a T, &'a T, f32) {
-    let mut min = vector.first().expect("Could not get first vector");
-    let mut max = vector.last().expect("Could not get last vector");
+pub fn find_in_nearest_time<T: Copy + Default>(vector: &Vec<(f32, T)>, time: f32) -> (T, T, f32) {
+    if vector.len() >= 2 {
+        let mut min = vector.first().unwrap();
+        let mut max = vector.last().unwrap();
 
-    if time > max.0 {
-        min = vector
-            .get(vector.len() - 2)
-            .expect("Could not get penultimate vector");
-    } else {
-        if time < vector[*index].0 {
-            *index = 0;
-        } else if *index > 0 {
-            *index -= 1;
-        }
-        for current in vector.iter().skip(*index) {
+        for current in vector.iter() {
             if current.0 <= time {
                 min = current;
                 continue;
@@ -606,120 +585,68 @@ fn find_in_nearest_time<'a, T>(
             max = current;
             break;
         }
-    }
 
-    let div = max.0 - min.0;
-    let lerp_value = if div != 0.0f32 {
-        (time - min.0) / div
+        let div = max.0 - min.0;
+        let lerp_value = if div != 0.0f32 {
+            (time - min.0) / div
+        } else {
+            1.0f32
+        };
+
+        (min.1, max.1, lerp_value)
+    } else if vector.len() == 1 {
+        (vector[0].1, vector[0].1, 0.0f32)
     } else {
-        1.0f32
-    };
-
-    (&min.1, &max.1, lerp_value)
-}
-
-fn run_hierarchy(
-    bone_transforms: &mut Vec<glam::Mat4>,
-    skeleton_bone: &Bone,
-    skeleton_bones: &Vec<Bone>,
-    parent_transform: &glam::Mat4,
-    current_frame: &mut Vec<BoneFrameIndexCache>,
-    animation: &Animation,
-    time: f32,
-) {
-    let mut global_transform = *parent_transform;
-
-    let animation_bone = animation
-        .bones
-        .iter()
-        .find(|&bone| bone.hash == skeleton_bone.hash);
-    if let Some(bone) = animation_bone {
-        let translation = find_in_nearest_time(
-            &bone.translations,
-            &mut current_frame[skeleton_bone.id as usize].translation,
-            time,
-        );
-        let rotation = find_in_nearest_time(
-            &bone.rotations,
-            &mut current_frame[skeleton_bone.id as usize].rotation,
-            time,
-        );
-        let scale = find_in_nearest_time(
-            &bone.scales,
-            &mut current_frame[skeleton_bone.id as usize].scale,
-            time,
-        );
-
-        let translation = translation.0.lerp(*translation.1, translation.2);
-        let rotation = rotation.0.lerp(*rotation.1, rotation.2);
-        let scale = scale.0.lerp(*scale.1, scale.2);
-
-        global_transform = *parent_transform
-            * glam::Mat4::from_scale_rotation_translation(scale, rotation, translation);
-    }
-
-    if let Some(transform) = bone_transforms.get_mut(skeleton_bone.id as usize) {
-        *transform = global_transform * skeleton_bone.inverse_global_matrix;
-    }
-
-    for child_id in &skeleton_bone.children {
-        run_hierarchy(
-            bone_transforms,
-            &skeleton_bones[*child_id],
-            skeleton_bones,
-            &global_transform,
-            current_frame,
-            animation,
-            time,
-        );
+        (T::default(), T::default(), 0.0f32)
     }
 }
 
 pub fn run_animation(
-    bone_transforms: &mut Vec<glam::Mat4>,
+    bone_transforms: &mut [glam::Mat4],
     animation: &Animation,
     skeleton: &Skeleton,
     time: f32,
 ) {
     if time <= animation.duration {
-        let mut current_frame = Vec::with_capacity(skeleton.bones.len());
-        for _ in 0..skeleton.bones.len() {
-            current_frame.push(BoneFrameIndexCache::new());
-        }
-        for animation_bone in &animation.bones {
-            let skeleton_bone = skeleton
+        let mut parent_transforms: Vec<glam::Mat4> = skeleton
+            .bones
+            .iter()
+            .map(|bone| bone.local_matrix)
+            .collect();
+        for i in 0..skeleton.bones.len() {
+            let skeleton_bone = &skeleton.bones[i];
+
+            let mut global_transform = if skeleton_bone.parent_id != -1 {
+                parent_transforms[skeleton_bone.parent_id as usize]
+            } else {
+                glam::Mat4::IDENTITY
+            };
+
+            let animation_bone = animation
                 .bones
                 .iter()
-                .find(|&bone| bone.hash == animation_bone.hash);
-            if let Some(bone) = skeleton_bone {
-                if bone.parent_id < 0 {
-                    run_hierarchy(
-                        bone_transforms,
-                        bone,
-                        &skeleton.bones,
-                        &glam::Mat4::IDENTITY,
-                        &mut current_frame,
-                        animation,
-                        time,
-                    );
-                }
+                .find(|&bone| bone.hash == skeleton_bone.hash);
+
+            if let Some(bone) = animation_bone {
+                let (translation_min, translation_max, translation_lerp_value) =
+                    find_in_nearest_time(&bone.translations, time);
+                let (rotation_min, rotation_max, rotation_lerp_value) =
+                    find_in_nearest_time(&bone.rotations, time);
+                let (scale_min, scale_max, scale_lerp_value) =
+                    find_in_nearest_time(&bone.scales, time);
+
+                let translation = translation_min.lerp(translation_max, translation_lerp_value);
+                let rotation = rotation_min.lerp(rotation_max, rotation_lerp_value);
+                let scale = scale_min.lerp(scale_max, scale_lerp_value);
+
+                global_transform *=
+                    glam::Mat4::from_scale_rotation_translation(scale, rotation, translation);
+            } else {
+                global_transform *= skeleton_bone.local_matrix;
             }
-        }
-    }
-}
 
-struct BoneFrameIndexCache {
-    translation: usize,
-    rotation: usize,
-    scale: usize,
-}
-
-impl BoneFrameIndexCache {
-    fn new() -> BoneFrameIndexCache {
-        BoneFrameIndexCache {
-            translation: 0,
-            rotation: 0,
-            scale: 0,
+            parent_transforms[i] = global_transform;
+            bone_transforms[i] = global_transform * skeleton_bone.inverse_global_matrix;
         }
     }
 }

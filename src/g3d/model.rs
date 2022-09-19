@@ -7,6 +7,8 @@ use config_json;
 
 use lol::{Mesh, Skin};
 
+use crate::gls::glam_read;
+
 pub struct Model {
     vao: GLuint,
     vbo: Vec<GLuint>,
@@ -31,8 +33,8 @@ impl Model {
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo[0]);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (skin.positions.len() * mem::size_of::<glam::Vec3>()) as GLsizeiptr,
-                skin.positions.as_ptr() as *const c_void,
+                (skin.vertices.len() * mem::size_of::<glam::Vec3>()) as GLsizeiptr,
+                skin.vertices.as_ptr() as *const c_void,
                 gl::STATIC_DRAW,
             );
 
@@ -53,13 +55,13 @@ impl Model {
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo[2]);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (skin.bone_indices.len() * mem::size_of::<glam::UVec4>()) as GLsizeiptr,
+                (skin.bone_indices.len() * mem::size_of::<glam_read::U16Vec4>()) as GLsizeiptr,
                 skin.bone_indices.as_ptr() as *const c_void,
                 gl::STATIC_DRAW,
             );
 
             gl::EnableVertexAttribArray(2);
-            gl::VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, 0, ptr::null());
+            gl::VertexAttribIPointer(2, 4, gl::UNSIGNED_SHORT, 0, ptr::null());
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo[3]);
             gl::BufferData(
@@ -90,8 +92,12 @@ impl Model {
                 gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo[i]);
                 gl::BufferData(
                     gl::ELEMENT_ARRAY_BUFFER,
-                    (skin.meshes[i].indices.len() * mem::size_of::<GLushort>()) as GLsizeiptr,
-                    skin.meshes[i].indices.as_ptr() as *const c_void,
+                    (skin.meshes[i].submesh.indices_count * mem::size_of::<GLushort>() as u32)
+                        as GLsizeiptr,
+                    skin.indices
+                        .as_ptr()
+                        .offset(skin.meshes[i].submesh.indices_offset as isize)
+                        as *const c_void,
                     gl::STATIC_DRAW,
                 );
             }
@@ -113,11 +119,12 @@ impl Model {
 
     pub fn render(
         &self,
-        config: &config_json::ConfigJson,
+        option: &config_json::OptionsJson,
         projection_view_matrix: &glam::Mat4,
         show_mesh: &[bool],
         skns_meshes: &[Mesh],
-        texture_used: &[Texture],
+        textures: &[Texture],
+        texture_selecteds: &[usize],
         bones_transforms: &[glam::Mat4],
     ) {
         unsafe {
@@ -129,7 +136,7 @@ impl Model {
                 gl::FALSE,
                 projection_view_matrix.as_ref() as *const GLfloat,
             );
-            if config.use_animation {
+            if option.use_animation {
                 gl::Uniform1i(self.use_bone_ref, 1);
                 gl::BindBuffer(gl::UNIFORM_BUFFER, self.ubo);
                 gl::BufferSubData(
@@ -148,22 +155,22 @@ impl Model {
             } else {
                 gl::Uniform1i(self.use_bone_ref, 0);
             }
-            if config.show_wireframe {
+            if option.show_wireframe {
                 gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
             }
             for i in 0..skns_meshes.len() {
                 if show_mesh[i] {
-                    texture_used[i].set_in_shader_ref(self.diffuse_ref);
+                    textures[texture_selecteds[i]].set_in_shader_ref(self.diffuse_ref);
                     gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo[i]);
                     gl::DrawElements(
                         gl::TRIANGLES,
-                        skns_meshes[i].indices.len() as GLsizei,
+                        skns_meshes[i].submesh.indices_count as GLsizei,
                         gl::UNSIGNED_SHORT,
                         ptr::null(),
                     );
                 }
             }
-            if config.show_wireframe {
+            if option.show_wireframe {
                 gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
             }
             gl::BindVertexArray(0);

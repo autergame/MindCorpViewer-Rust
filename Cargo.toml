@@ -1,13 +1,12 @@
 [package]
 name = "mindcorpviewer-rust"
-version = "0.2.0"
+version = "1.0.0"
 authors = ["autergame"]
 
 [dependencies]
 byteorder = "1.4.3"
-json = "0.12.4"
-dtoa = "1.0.2"
-clap = "3.2.15"
+image = "0.24.3"
+mime = "0.3.16"
 glob = "0.3.0"
 
 gl = "0.14.0"
@@ -16,6 +15,16 @@ glfw = "0.45.0"
 
 imgui = "0.8.2"
 imgui-opengl-renderer = "0.11.1"
+
+serde_json = "1.0.85"
+
+[dependencies.serde]
+version = "1.0.144"
+features = ["derive"] 
+
+[dependencies.gltf]
+version = "1.0.0"
+features = ["names", "extras", "KHR_materials_unlit"] 
 
 [profile.release-with-debug]
 inherits = "release"
