@@ -1,4 +1,4 @@
-use lol::{Animation, Skeleton, Skin};
+use lol::{anm, Animation, Skeleton, Skin};
 
 use gltf::{
     json::{
@@ -15,17 +15,14 @@ use gls::glam_read;
 
 use std::{borrow, collections::HashMap, fs::File, io::Write, mem, path::Path};
 
+use crate::MindModel;
+
 pub fn export_model(
     export_as: u32,
     model_name: &String,
-    skin: &Skin,
-    skeleton: &Skeleton,
-    animations: &[Animation],
-    animations_file_names: &[String],
-    textures_paths: &[String],
-    texture_selecteds: &[usize],
+	mind_model: &MindModel
 ) {
-    let export_path = format!("export/{}", model_name);
+    let export_path = format!("export/{model_name}");
     std::fs::create_dir_all(&export_path).expect("Could not create export dirs");
 
     let mut accessor_index = 0;
@@ -33,8 +30,8 @@ pub fn export_model(
     let mut buffer_view_offset = 0;
 
     let (mut buffer_views, mut accessors, mesh, mesh_data) = make_mesh(
-        skin,
-        texture_selecteds,
+        &mind_model.skn,
+        &mind_model.textures_selecteds,
         &mut accessor_index,
         &mut buffer_view_index,
         &mut buffer_view_offset,
@@ -43,7 +40,7 @@ pub fn export_model(
     let mut all_datas = vec![mesh_data];
 
     let (materials, textures, images, texture_data_buffer_views) = make_material(
-        textures_paths,
+        &mind_model.textures_paths,
         &export_path,
         export_as,
         &mut buffer_view_index,
@@ -67,7 +64,7 @@ pub fn export_model(
 
     let (nodes, gltf_skin, ibm_data, ibm_buffer_view, ibm_accessor) = make_skeleton(
         model_name,
-        skeleton,
+        &mind_model.skl,
         &mut accessor_index,
         &mut buffer_view_index,
         &mut buffer_view_offset,
@@ -80,18 +77,18 @@ pub fn export_model(
 
     let mut animations_gltf = vec![];
 
-    for i in 0..animations.len() {
+    for i in 0..mind_model.animations.len() {
         let (animation_gltf, animation_data, animation_buffer_view, animation_accessor) =
             make_animation(
-                skeleton,
-                &animations[i],
-                &animations_file_names[i],
+                &mind_model.skl,
+                &mind_model.animations[i],
+                &mind_model.animations_file_names[i],
                 &mut accessor_index,
                 &mut buffer_view_index,
                 &mut buffer_view_offset,
             );
         animations_gltf.push(animation_gltf);
-		all_datas.push(animation_data);
+        all_datas.push(animation_data);
         buffer_views.push(animation_buffer_view);
         accessors.extend_from_slice(&animation_accessor);
     }
@@ -109,8 +106,8 @@ pub fn export_model(
     let scene = Scene {
         extensions: None,
         extras: None,
-        name: Some("Model".to_string()),
-        nodes: vec![Index::new(skeleton.bones.len() as u32)],
+        name: Some("Model".to_owned()),
+        nodes: vec![Index::new(mind_model.skl.bones.len() as u32)],
     };
 
     let asset = Asset {
@@ -119,7 +116,7 @@ pub fn export_model(
         extras: None,
         generator: None,
         min_version: None,
-        version: "2.0".to_string(),
+        version: "2.0".to_owned(),
     };
 
     let mut root = Root {
@@ -135,8 +132,8 @@ pub fn export_model(
         samplers: vec![texture_sampler],
         images,
         scenes: vec![scene],
-        extensions_required: vec!["KHR_materials_unlit".to_string()],
-        extensions_used: vec!["KHR_materials_unlit".to_string()],
+        extensions_required: vec!["KHR_materials_unlit".to_owned()],
+        extensions_used: vec!["KHR_materials_unlit".to_owned()],
         asset,
         scene: Some(Index::new(0)),
         extensions: None,
@@ -145,17 +142,17 @@ pub fn export_model(
     };
 
     if export_as == 0 {
-        root.buffers[0].uri = Some(format!("{}_data.bin", model_name));
+        root.buffers[0].uri = Some(format!("{model_name}_data.bin"));
 
         let json_string = root.to_string_pretty().expect("Could not serialize gltf");
 
-        let output_gltf = format!("{}/{}.gltf", export_path, model_name);
+        let output_gltf = format!("{export_path}/{model_name}.gltf");
         let mut writer_gltf = File::create(output_gltf).expect("Could not create gltf file");
         writer_gltf
             .write_all(json_string.as_bytes())
             .expect("Could not write gltf");
 
-        let output_data_bin = format!("{}/{}_data.bin", export_path, model_name);
+        let output_data_bin = format!("{export_path}/{model_name}_data.bin");
         let mut writer_data_bin =
             File::create(output_data_bin).expect("Could not create gltf bin file");
         writer_data_bin
@@ -174,7 +171,7 @@ pub fn export_model(
             json: borrow::Cow::Owned(json_string.into_bytes()),
         };
 
-        let outputglb = format!("export/{}.glb", model_name);
+        let outputglb = format!("export/{model_name}.glb");
         let writerglb = File::create(outputglb).expect("Could not create glb file");
         glb.to_writer(writerglb).expect("Could not write glb");
     }
@@ -195,7 +192,7 @@ fn make_animation(
 
     let times_length = (times.len() * mem::size_of::<f32>()) as u32;
 
-    let filtered_animation_bones: Vec<(usize, &crate::lol::anm::BoneAnm)> = animation
+    let filtered_animation_bones: Vec<(usize, &anm::BoneAnm)> = animation
         .bones
         .iter()
         .filter_map(|animation_bone| {
@@ -214,10 +211,8 @@ fn make_animation(
                 &times
                     .iter()
                     .map(|time| {
-                        let (min, max, lerp_value) = crate::lol::anm::find_in_nearest_time(
-                            &animation_bone.translations,
-                            *time,
-                        );
+                        let (min, max, lerp_value) =
+                            anm::find_in_nearest_time(&animation_bone.translations, *time);
                         min.lerp(max, lerp_value)
                     })
                     .collect(),
@@ -232,7 +227,7 @@ fn make_animation(
                     .iter()
                     .map(|time| {
                         let (min, max, lerp_value) =
-                            crate::lol::anm::find_in_nearest_time(&animation_bone.rotations, *time);
+                            anm::find_in_nearest_time(&animation_bone.rotations, *time);
                         min.lerp(max, lerp_value)
                     })
                     .collect(),
@@ -247,7 +242,7 @@ fn make_animation(
                     .iter()
                     .map(|time| {
                         let (min, max, lerp_value) =
-                            crate::lol::anm::find_in_nearest_time(&animation_bone.scales, *time);
+                            anm::find_in_nearest_time(&animation_bone.scales, *time);
                         min.lerp(max, lerp_value)
                     })
                     .collect(),
@@ -266,11 +261,8 @@ fn make_animation(
         scales_1d,
     ]);
 
-    let animation_buffer_view = make_buffer_view(
-        animation_total_data.len() as u32,
-    	*buffer_view_offset,
-        None,
-    );
+    let animation_buffer_view =
+        make_buffer_view(animation_total_data.len() as u32, *buffer_view_offset, None);
     let animation_buffer_view_index = *buffer_view_index;
     *buffer_view_index += 1;
     *buffer_view_offset += animation_total_data.len() as u32;
@@ -351,7 +343,7 @@ fn make_animation(
         extensions: None,
         extras: None,
         channels,
-        name: Some(animations_file_name.to_string()),
+        name: Some(animations_file_name.to_owned()),
         samplers,
     };
 
@@ -364,7 +356,7 @@ fn make_animation(
 }
 
 fn make_trs(
-    animation_bones: &[(usize, &crate::lol::anm::BoneAnm)],
+    animation_bones: &[(usize, &anm::BoneAnm)],
     type_: accessor::Type,
     component_type: accessor::ComponentType,
     animation_property: animation::Property,
@@ -544,7 +536,7 @@ fn make_mesh(
 
     let bone_weights_buffer_view = make_buffer_view(
         bone_weights_length,
-		total_buffers_offset,
+        total_buffers_offset,
         Some(buffer::Target::ArrayBuffer),
     );
     let bone_weights_accessor = make_accessor(
@@ -565,7 +557,7 @@ fn make_mesh(
         skin,
         texture_selecteds,
         indices_length,
-		total_buffers_offset,
+        total_buffers_offset,
         buffer_view_index,
         accessor_index,
     );
@@ -682,7 +674,7 @@ fn make_skeleton(
             extras: None,
             matrix: None,
             mesh: None,
-            name: Some(skeleton.bones[i].name.to_string()),
+            name: Some(skeleton.bones[i].name.to_owned()),
             rotation: Some(scene::UnitQuaternion(rotation.to_array())),
             scale: Some(scale.to_array()),
             translation: Some(translation.to_array()),
@@ -705,7 +697,7 @@ fn make_skeleton(
         extras: None,
         matrix: None,
         mesh: Some(Index::new(0)),
-        name: Some(format!("RootMaster{}", model_name)),
+        name: Some(format!("RootMaster{model_name}")),
         rotation: None,
         scale: None,
         translation: None,
@@ -753,7 +745,7 @@ fn make_skeleton(
         extras: None,
         inverse_bind_matrices: Some(Index::new(ibm_accessor_index)),
         joints,
-        name: Some(model_name.to_string()),
+        name: Some(model_name.to_owned()),
         skeleton: Some(Index::new(skeleton.bones.len() as u32)),
     };
 
@@ -779,8 +771,11 @@ fn make_material(
     let mut buffer_views = vec![];
     let mut total_buffers = vec![];
 
-    let texture_export_path = format!("{}/textures", export_path);
-    std::fs::create_dir_all(&texture_export_path).expect("Could not create texture export dirs");
+    let texture_export_path = format!("{export_path}/textures");
+    if export_as == 0 {
+        std::fs::create_dir_all(&texture_export_path)
+            .expect("Could not create texture export dirs");
+    }
 
     for i in 0..textures_paths.len() {
         let texture_path = Path::new(&textures_paths[i]);
@@ -797,7 +792,7 @@ fn make_material(
             let texture_file_name =
                 Path::new(&texture_path.file_stem().unwrap()).with_extension("png");
             let texture_save_path =
-                format!("{}/{}", texture_export_path, texture_file_name.display());
+                format!("{texture_export_path}/{}", texture_file_name.display());
 
             image
                 .save_with_format(texture_save_path, image::ImageFormat::Png)
@@ -834,7 +829,7 @@ fn make_material(
         images.push(Image {
             buffer_view,
             mime_type: Some(gltf::json::image::MimeType(
-                mime::IMAGE_PNG.as_ref().to_string(),
+                mime::IMAGE_PNG.as_ref().to_owned(),
             )),
             name: None,
             uri,

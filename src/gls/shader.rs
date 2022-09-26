@@ -1,23 +1,12 @@
 use gl::types::{GLchar, GLenum, GLint, GLuint};
-use std::{ffi::CString, fs::File, io::Read, path::Path, ptr};
+use std::{ffi::CString, ptr};
 
-#[derive(Copy, Clone)]
 pub struct Shader {
-    program: GLuint,
+    id: GLuint,
 }
 
 impl Shader {
-    pub fn new() -> Shader {
-        Shader { program: 0 }
-    }
-
-    fn load_shader(shader_type: GLenum, path: &Path) -> GLuint {
-        println!("Reading shader file: {}", path.to_str().unwrap());
-        let mut file = File::open(path).expect("Could not open shader file");
-        let mut source = String::new();
-        file.read_to_string(&mut source)
-            .expect("Could not read shader file");
-
+    fn load_shader(shader_type: GLenum, source: &str) -> GLuint {
         unsafe {
             let c_str_source = CString::new(source).expect("Could not create source CString");
 
@@ -46,9 +35,9 @@ impl Shader {
         }
     }
 
-    pub fn create(vertex_path: &Path, fragment_path: &Path) -> Shader {
-        let vertex = Self::load_shader(gl::VERTEX_SHADER, vertex_path);
-        let fragment = Self::load_shader(gl::FRAGMENT_SHADER, fragment_path);
+    pub fn create(vertex_data: &str, fragment_data: &str) -> Shader {
+        let vertex = Self::load_shader(gl::VERTEX_SHADER, vertex_data);
+        let fragment = Self::load_shader(gl::FRAGMENT_SHADER, fragment_data);
 
         unsafe {
             let program = gl::CreateProgram();
@@ -77,17 +66,17 @@ impl Shader {
             gl::DeleteShader(vertex);
             gl::DeleteShader(fragment);
 
-            Shader { program }
+            Shader { id: program }
         }
     }
 
     pub fn get_refs(&self, names: &[&str]) -> Vec<GLint> {
         unsafe {
             let mut refs: Vec<GLint> = Vec::with_capacity(names.len());
-            gl::UseProgram(self.program);
+            self.enable();
             for name in names {
                 let c_str_name = CString::new(*name).expect("Could not create ref CString");
-                refs.push(gl::GetUniformLocation(self.program, c_str_name.as_ptr()));
+                refs.push(gl::GetUniformLocation(self.id, c_str_name.as_ptr()));
             }
             refs
         }
@@ -96,27 +85,35 @@ impl Shader {
     pub fn get_ubo_ref(&self, name: &str) -> GLuint {
         unsafe {
             let c_str_name = CString::new(name).expect("Could not create ubo ref CString");
-            gl::UseProgram(self.program);
-            gl::GetUniformBlockIndex(self.program, c_str_name.as_ptr())
+            self.enable();
+            gl::GetUniformBlockIndex(self.id, c_str_name.as_ptr())
         }
     }
 
-    pub fn ubi_binding(&self, ubo_ref: GLuint, binding: GLuint) {
+    pub fn ubo_binding(&self, ubo_ref: GLuint, binding: GLuint) {
         unsafe {
-            gl::UseProgram(self.program);
-            gl::UniformBlockBinding(self.program, ubo_ref, binding);
+            self.enable();
+            gl::UniformBlockBinding(self.id, ubo_ref, binding);
+        }
+    }
+
+	pub fn set_uniform_1_int(&self, glref: GLint, unit: i32) {
+        unsafe {
+            gl::Uniform1i(glref, unit);
         }
     }
 
     pub fn enable(&self) {
         unsafe {
-            gl::UseProgram(self.program);
+            gl::UseProgram(self.id);
         }
     }
+}
 
-    pub fn destroy(&self) {
+impl Drop for Shader {
+    fn drop(&mut self) {
         unsafe {
-            gl::DeleteProgram(self.program);
+            gl::DeleteProgram(self.id);
         }
     }
 }

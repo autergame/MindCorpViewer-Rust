@@ -1,37 +1,43 @@
-extern crate imgui_opengl_renderer;
+// https://github.com/K4ugummi/imgui-glfw-rs
 
-use std::ffi::CStr;
-use std::os::raw::{c_char, c_void};
+struct GlfwClipboardBackend {
+    window: *mut glfw::ffi::GLFWwindow,
+}
 
-struct GlfwClipboardBackend(*mut c_void);
+impl GlfwClipboardBackend {
+    fn new(window: *mut glfw::ffi::GLFWwindow) -> GlfwClipboardBackend {
+        GlfwClipboardBackend { window }
+    }
+}
 
 impl imgui::ClipboardBackend for GlfwClipboardBackend {
     fn get(&mut self) -> Option<String> {
-        unsafe {
-            let char_ptr = glfw::ffi::glfwGetClipboardString(self.0 as *mut glfw::ffi::GLFWwindow);
-            Some(CStr::from_ptr(char_ptr).to_str().unwrap().to_string())
+        let char_ptr = unsafe { glfw::ffi::glfwGetClipboardString(self.window) };
+        if !char_ptr.is_null() {
+            let c_str = unsafe { std::ffi::CStr::from_ptr(char_ptr) };
+            Some(c_str.to_str().unwrap().to_owned())
+        } else {
+            None
         }
     }
-
     fn set(&mut self, value: &str) {
         unsafe {
-            glfw::ffi::glfwSetClipboardString(
-                self.0 as *mut glfw::ffi::GLFWwindow,
-                value.as_ptr() as *const c_char,
-            );
+            glfw::ffi::glfwSetClipboardString(self.window, value.as_ptr() as *const i8);
         };
     }
 }
 
 pub struct ImguiGLFW {
-    mouse_press: [bool; 5],
     renderer: imgui_opengl_renderer::Renderer,
 }
 
 impl ImguiGLFW {
-    pub fn new(imgui: &mut imgui::Context, window: &mut glfw::Window) -> ImguiGLFW {
-        let window_ptr = unsafe { glfw::ffi::glfwGetCurrentContext() as *mut c_void };
-        imgui.set_clipboard_backend(GlfwClipboardBackend(window_ptr));
+    pub fn new(imgui: &mut imgui::Context, window: &mut glfw::Window) -> Self {
+        unsafe {
+            imgui.set_clipboard_backend(GlfwClipboardBackend::new(
+                glfw::ffi::glfwGetCurrentContext(),
+            ));
+        }
 
         let mut io_mut = imgui.io_mut();
         io_mut.key_map[imgui::Key::Tab as usize] = glfw::Key::Tab as u32;
@@ -59,16 +65,13 @@ impl ImguiGLFW {
         let renderer =
             imgui_opengl_renderer::Renderer::new(imgui, |s| window.get_proc_address(s) as _);
 
-        ImguiGLFW {
-            mouse_press: [false; 5],
-            renderer,
-        }
+        Self { renderer }
     }
 
     pub fn handle_event(&mut self, imgui: &mut imgui::Context, event: &glfw::WindowEvent) {
         match *event {
-            glfw::WindowEvent::MouseButton(button, action, _) => {
-                let index = match button {
+            glfw::WindowEvent::MouseButton(mouse_btn, action, _) => {
+                let index = match mouse_btn {
                     glfw::MouseButton::Button1 => 0,
                     glfw::MouseButton::Button2 => 1,
                     glfw::MouseButton::Button3 => 2,
@@ -76,24 +79,19 @@ impl ImguiGLFW {
                     glfw::MouseButton::Button5 => 4,
                     _ => 0,
                 };
-                self.mouse_press[index] = action != glfw::Action::Release;
-                imgui.io_mut().mouse_down = self.mouse_press;
+                imgui.io_mut().mouse_down[index] = action != glfw::Action::Release;
             }
-            glfw::WindowEvent::CursorPos(xpos, ypos) => {
-                imgui.io_mut().mouse_pos = [xpos as f32, ypos as f32];
+            glfw::WindowEvent::CursorPos(x, y) => {
+                imgui.io_mut().mouse_pos = [x as f32, y as f32];
             }
-            glfw::WindowEvent::Scroll(_, yoffset) => {
-                imgui.io_mut().mouse_wheel = yoffset as f32;
+            glfw::WindowEvent::Scroll(_, d) => {
+                imgui.io_mut().mouse_wheel = d as f32;
             }
             glfw::WindowEvent::Char(character) => {
                 imgui.io_mut().add_input_character(character);
             }
             glfw::WindowEvent::Key(key, _, action, modifier) => {
-                imgui.io_mut().key_alt = modifier.intersects(glfw::Modifiers::Alt);
-                imgui.io_mut().key_ctrl = modifier.intersects(glfw::Modifiers::Control);
-                imgui.io_mut().key_shift = modifier.intersects(glfw::Modifiers::Shift);
-                imgui.io_mut().key_super = modifier.intersects(glfw::Modifiers::Super);
-
+                Self::set_mod(imgui, modifier);
                 imgui.io_mut().keys_down[key as usize] = action != glfw::Action::Release;
             }
             _ => {}
@@ -110,17 +108,15 @@ impl ImguiGLFW {
 
         io.delta_time = delta_time;
 
-        let (width, height) = window.get_size();
-        let (display_width, display_height) = window.get_framebuffer_size();
+        let window_size = window.get_size();
+        io.display_size = [window_size.0 as f32, window_size.1 as f32];
 
-        let (width, height) = (width as f32, height as f32);
-        let (display_width, display_height) = (display_width as f32, display_height as f32);
-
-        io.display_size = [width, height];
-        if width > 0.0f32 && height > 0.0f32 && display_width > 0.0f32 && display_height > 0.0f32 {
-            io.display_framebuffer_scale = [display_width / width, display_height / height];
-        } else {
-            io.display_framebuffer_scale = [1.0f32, 1.0f32];
+        if window_size.0 > 0 && window_size.1 > 0 {
+            let framebuffer_size = window.get_framebuffer_size();
+            io.display_framebuffer_scale = [
+                framebuffer_size.0 as f32 / io.display_size[0],
+                framebuffer_size.1 as f32 / io.display_size[1],
+            ];
         }
 
         imgui.frame()
@@ -135,6 +131,7 @@ impl ImguiGLFW {
             match ui.mouse_cursor() {
                 Some(mouse_cursor) if !io.mouse_draw_cursor => {
                     window.set_cursor_mode(glfw::CursorMode::Normal);
+
                     let cursor = match mouse_cursor {
                         imgui::MouseCursor::TextInput => glfw::StandardCursor::IBeam,
                         imgui::MouseCursor::ResizeNS => glfw::StandardCursor::VResize,
@@ -149,10 +146,13 @@ impl ImguiGLFW {
                 }
             }
         }
-        unsafe {
-            gl::Disable(gl::MULTISAMPLE);
-            self.renderer.render(ui);
-            gl::Enable(gl::MULTISAMPLE);
-        }
+        self.renderer.render(ui);
+    }
+
+    fn set_mod(imgui: &mut imgui::Context, modifier: glfw::Modifiers) {
+        imgui.io_mut().key_ctrl = modifier.intersects(glfw::Modifiers::Control);
+        imgui.io_mut().key_alt = modifier.intersects(glfw::Modifiers::Alt);
+        imgui.io_mut().key_shift = modifier.intersects(glfw::Modifiers::Shift);
+        imgui.io_mut().key_super = modifier.intersects(glfw::Modifiers::Super);
     }
 }

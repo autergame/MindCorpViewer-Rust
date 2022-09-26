@@ -493,7 +493,7 @@ impl Animation {
             let name = String::from_utf8(string)
                 .expect("Invalid UTF-8 sequence")
                 .trim_end_matches('\0')
-                .to_string();
+                .to_owned();
             let hash = hasher::string_to_hash(&name);
 
             reader.set_position(reader.position() + 4);

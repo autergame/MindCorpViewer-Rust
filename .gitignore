@@ -1,5 +1,8 @@
 cross_compile.sh
 
+assets/floor/old
+assets/skybox/old
+
 files/
 
 target/

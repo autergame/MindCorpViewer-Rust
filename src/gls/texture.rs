@@ -1,22 +1,18 @@
-use gl::types::{GLint, GLubyte, GLuint};
-
+use byteorder::{LittleEndian, ReadBytesExt};
+use gl::types::{GLenum, GLint, GLubyte, GLuint};
 use std::{
-    fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
+    io::{Cursor, Read, Seek, SeekFrom},
     os::raw::c_void,
-    path::Path,
 };
 
-use byteorder::{LittleEndian, ReadBytesExt};
-
-#[derive(Copy, Clone)]
 pub struct Texture {
-    texture: GLuint,
+    pub id: GLuint,
+    gltype: GLenum,
 }
 
 impl Texture {
-    fn load_dds(path: &Path) -> (Vec<u8>, u32, i32, i32, i32) {
-        let mut reader = BufReader::new(File::open(path).expect("Could not open DDS file"));
+    fn load_dds(source: &[u8]) -> (Vec<u8>, u32, i32, i32, i32) {
+        let mut reader = Cursor::new(source);
 
         let mut signature = vec![0u8; 4];
         reader
@@ -70,13 +66,13 @@ impl Texture {
     }
 
 	#[rustfmt::skip]
-    pub fn load_texture(path: &Path) -> Texture {
-		let (image_data, format, mut width, mut height, mipmap_count) = Self::load_dds(path);
+    pub fn load_texture(source: &[u8]) -> Texture {
+		let (image_data, format, mut width, mut height, mipmap_count) = Self::load_dds(source);
 
 		unsafe {
-			let mut texture: GLuint = 0;
-			gl::GenTextures(1, &mut texture);
-			gl::BindTexture(gl::TEXTURE_2D, texture);
+			let mut texture_id: GLuint = 0;
+			gl::GenTextures(1, &mut texture_id);
+			gl::BindTexture(gl::TEXTURE_2D, texture_id);
 			gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
 			gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_BASE_LEVEL, 0);
 			gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAX_LEVEL, 1i32.max(mipmap_count - 1i32));
@@ -103,18 +99,16 @@ impl Texture {
 				gl::GenerateMipmap(gl::TEXTURE_2D);
 			}
 
-			gl::ActiveTexture(gl::TEXTURE0 + texture);
-
-			Texture { texture: texture - 1 }
+			Texture { id: texture_id, gltype: gl::TEXTURE_2D }
 		}
 	}
 
 	#[rustfmt::skip]
-    pub fn load_cubemap(path: &[&Path; 6]) -> Texture {
+    pub fn load_cubemap(source: &[&[u8]; 6]) -> Texture {
 		unsafe {
-			let mut texture: GLuint = 0;
-			gl::GenTextures(1, &mut texture);
-			gl::BindTexture(gl::TEXTURE_CUBE_MAP, texture);
+			let mut texture_id: GLuint = 0;
+			gl::GenTextures(1, &mut texture_id);
+			gl::BindTexture(gl::TEXTURE_CUBE_MAP, texture_id);
 			gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
 			gl::TexParameteri(gl::TEXTURE_CUBE_MAP, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
 			gl::TexParameteri(gl::TEXTURE_CUBE_MAP, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
@@ -124,7 +118,7 @@ impl Texture {
 
 			for i in 0..6u32 {
 				let (image_data, format, mut width, mut height, mipmap_count) =
-					Self::load_dds(path[i as usize]);
+					Self::load_dds(source[i as usize]);
 
 				let mut offset = 0i32;
 				let block_size = if format == 0x83F1 { 8i32 } else { 16i32 };
@@ -150,25 +144,21 @@ impl Texture {
 				}
 			}
 
-			gl::ActiveTexture(gl::TEXTURE0 + texture);
-
-			Texture { texture: texture - 1 }
+			Texture { id: texture_id, gltype: gl::TEXTURE_CUBE_MAP }
 		}
 	}
 
-    pub fn set_in_shader_ref(&self, texture_ref: GLint) {
+    pub fn bind(&self) {
         unsafe {
-            gl::Uniform1i(texture_ref, self.texture as i32);
+            gl::BindTexture(self.gltype, self.id);
         }
     }
+}
 
-    pub fn unslot(&self) -> GLuint {
-        self.texture + 1
-    }
-
-    pub fn destroy(&self) {
+impl Drop for Texture {
+    fn drop(&mut self) {
         unsafe {
-            gl::DeleteTextures(1, &self.texture);
+            gl::DeleteTextures(1, &self.id);
         }
     }
 }

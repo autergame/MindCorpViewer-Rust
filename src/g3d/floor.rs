@@ -1,5 +1,5 @@
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-use std::{mem, os::raw::c_void, path::Path, ptr};
+use std::{mem, os::raw::c_void, ptr};
 
 use gls::{Shader, Texture};
 
@@ -15,12 +15,12 @@ pub struct Floor {
 impl Floor {
     pub fn new() -> Floor {
         let shader = Shader::create(
-            Path::new("assets/floor.vert"),
-            Path::new("assets/floor.frag"),
+            include_str!("../../assets/floor/floor.vert"),
+            include_str!("../../assets/floor/floor.frag"),
         );
         let refs = shader.get_refs(&["Diffuse", "MVP"]);
 
-        let texture = Texture::load_texture(Path::new("assets/floor.dds"));
+        let texture = Texture::load_texture(include_bytes!("../../assets/floor/floor.dds"));
 
         #[rustfmt::skip]
 		let floor_vertices: [GLfloat; 20] = [
@@ -38,7 +38,7 @@ impl Floor {
 
         unsafe {
             shader.enable();
-            texture.set_in_shader_ref(refs[0]);
+			shader.set_uniform_1_int(refs[0], 0);
 
             let mut vao: GLuint = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -90,7 +90,15 @@ impl Floor {
 
     pub fn render(&self, projection_view_matrix: &glam::Mat4) {
         unsafe {
+            gl::Disable(gl::CULL_FACE);
+            gl::Enable(gl::DEPTH_TEST);
+            gl::DepthFunc(gl::LESS);
+
             self.shader.enable();
+
+            gl::ActiveTexture(gl::TEXTURE0);
+            self.texture.bind();
+
             gl::BindVertexArray(self.vao);
             gl::UniformMatrix4fv(
                 self.mvp_ref,
@@ -102,11 +110,11 @@ impl Floor {
             gl::BindVertexArray(0);
         }
     }
+}
 
-    pub fn destroy(&self) {
+impl Drop for Floor {
+    fn drop(&mut self) {
         unsafe {
-            self.shader.destroy();
-            self.texture.destroy();
             gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteBuffers(1, &self.ebo);
             gl::DeleteVertexArrays(1, &self.vao);

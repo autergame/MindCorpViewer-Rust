@@ -1,5 +1,5 @@
 use gl::types::{GLfloat, GLint, GLsizeiptr, GLuint};
-use std::{mem, os::raw::c_void, path::Path, ptr};
+use std::{mem, os::raw::c_void, ptr};
 
 use gls::{Shader, Texture};
 
@@ -15,18 +15,18 @@ pub struct Skybox {
 impl Skybox {
     pub fn new() -> Skybox {
         let shader = Shader::create(
-            Path::new("assets/skybox.vert"),
-            Path::new("assets/skybox.frag"),
+            include_str!("../../assets/skybox/skybox.vert"),
+            include_str!("../../assets/skybox/skybox.frag"),
         );
         let refs = shader.get_refs(&["Skybox", "MVP"]);
 
         let texture = Texture::load_cubemap(&[
-            Path::new("assets/skybox/right.dds"),
-            Path::new("assets/skybox/left.dds"),
-            Path::new("assets/skybox/top.dds"),
-            Path::new("assets/skybox/bottom.dds"),
-            Path::new("assets/skybox/front.dds"),
-            Path::new("assets/skybox/back.dds"),
+            include_bytes!("../../assets/skybox/right.dds"),
+            include_bytes!("../../assets/skybox/left.dds"),
+            include_bytes!("../../assets/skybox/top.dds"),
+            include_bytes!("../../assets/skybox/bottom.dds"),
+            include_bytes!("../../assets/skybox/front.dds"),
+            include_bytes!("../../assets/skybox/back.dds"),
         ]);
 
         #[rustfmt::skip]
@@ -59,7 +59,7 @@ impl Skybox {
 
         unsafe {
             shader.enable();
-            texture.set_in_shader_ref(refs[0]);
+            shader.set_uniform_1_int(refs[0], 0);
 
             let mut vao: GLuint = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -107,8 +107,13 @@ impl Skybox {
         let skybox_view_matrix = glam::Mat4::from_mat3(glam::Mat3::from_mat4(*view_matrix));
         let skybox_projection_view_matrix = *projection_matrix * skybox_view_matrix;
         unsafe {
-            gl::DepthFunc(gl::LEQUAL);
+            gl::Disable(gl::DEPTH_TEST);
+
             self.shader.enable();
+
+            gl::ActiveTexture(gl::TEXTURE0);
+            self.texture.bind();
+
             gl::BindVertexArray(self.vao);
             gl::UniformMatrix4fv(
                 self.mvp_ref,
@@ -118,14 +123,13 @@ impl Skybox {
             );
             gl::DrawElements(gl::TRIANGLES, 36, gl::UNSIGNED_INT, ptr::null());
             gl::BindVertexArray(0);
-            gl::DepthFunc(gl::LESS);
         }
     }
+}
 
-    pub fn destroy(&self) {
+impl Drop for Skybox {
+    fn drop(&mut self) {
         unsafe {
-            self.shader.destroy();
-            self.texture.destroy();
             gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteBuffers(1, &self.ebo);
             gl::DeleteVertexArrays(1, &self.vao);

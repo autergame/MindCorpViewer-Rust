@@ -75,7 +75,7 @@ impl Skin {
                 let name = String::from_utf8(string)
                     .expect("Invalid UTF-8 sequence")
                     .trim_end_matches('\0')
-                    .to_string();
+                    .to_owned();
 
                 reader.set_position(reader.position() + 8);
 
@@ -150,7 +150,7 @@ impl Skin {
         }
 
         if major != 4 {
-            for pos in &vertices {
+            for pos in vertices.iter() {
                 for i in 0..3 {
                     bbmin[i] = f32::min(bbmin[i], pos[i]);
                     bbmax[i] = f32::max(bbmax[i], pos[i]);
@@ -168,7 +168,7 @@ impl Skin {
             meshes
         } else {
             vec![Mesh::new(SubMeshHeader {
-                name: "Base".to_string(),
+                name: "Base".to_owned(),
                 indices_offset: 0,
                 indices_count: indices.len() as u32,
             })]
