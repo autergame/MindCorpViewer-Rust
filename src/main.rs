@@ -244,7 +244,7 @@ fn main() {
     style.frame_border_size = 1.0f32;
     style.window_border_size = 1.0f32;
     style.indent_spacing = style.frame_padding[0] * 3.0f32 - 2.0f32;
-	style.window_menu_button_position = imgui::Direction::Right;
+    style.window_menu_button_position = imgui::Direction::Right;
 
     imgui.fonts().add_font(&[
         imgui::FontSource::TtfData {
@@ -358,6 +358,11 @@ fn main() {
                 ui.checkbox("Show Floor", &mut json_config.show_floor);
                 ui.checkbox("Show Skybox", &mut json_config.show_skybox);
                 ui.checkbox("Synchronized Time", &mut json_config.synchronized_time);
+                if ui.is_item_hovered() {
+                    ui.tooltip(|| {
+                        ui.text("Synchronize all models to first model");
+                    });
+                }
                 ui.separator();
                 for i in 0..mind_models.len() {
                     let mind_model = &mut mind_models[i];
@@ -365,6 +370,11 @@ fn main() {
                     let _model_id = ui.push_id(i as i32);
                     ui.align_text_to_frame_padding();
                     ui.checkbox("##show", &mut json_config.options[i].show);
+                    if ui.is_item_hovered() {
+                        ui.tooltip(|| {
+                            ui.text("Show / Hide model");
+                        });
+                    }
                     ui.same_line();
                     let tree_node = imgui::TreeNode::new(json_config.paths[i].name.to_owned())
                         .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
@@ -375,11 +385,14 @@ fn main() {
                         ui.window_content_region_width() - ui.calc_text_size("\u{F014}")[0],
                     );
                     if confirm_delete_button(&ui) {
+                        lines.remove(i);
+                        joints.remove(i);
+                        models.remove(i);
+                        mind_models.remove(i);
                         json_config.paths.remove(i);
                         json_config.options.remove(i);
                         json_config.meshes.remove(i);
-                        mind_models.remove(i);
-                        continue;
+                        break;
                     }
                     if let Some(_node) = tree_node {
                         let options = &mut json_config.options[i];
@@ -847,23 +860,25 @@ fn play_animation(
     delta_time: f32,
     animation_synchronized_time: Option<f32>,
 ) {
-    if options.play_animation {
-        if options.animation_time <= mind_model.animations[mind_model.animation_selected].duration {
-            options.animation_time += delta_time * options.animation_speed;
-        } else if options.next_animation {
-            mind_model.animation_selected += 1;
-            if mind_model.animation_selected == mind_model.animations.len() {
-                mind_model.animation_selected = 0;
+    if options.use_animation {
+        if options.play_animation {
+            if options.animation_time
+                < mind_model.animations[mind_model.animation_selected].duration
+            {
+                options.animation_time += delta_time * options.animation_speed;
+            } else if options.next_animation {
+                mind_model.animation_selected += 1;
+                if mind_model.animation_selected == mind_model.animations.len() {
+                    mind_model.animation_selected = 0;
+                }
+                options.animation_time = 0.0f32;
+            } else if options.loop_animation {
+                options.animation_time = 0.0f32;
             }
-            options.animation_time = 0.0f32;
-        } else if options.loop_animation {
-            options.animation_time = 0.0f32;
         }
         if let Some(animation_time) = animation_synchronized_time {
             options.animation_time = animation_time;
         }
-    }
-    if options.use_animation {
         lol::anm::run_animation(
             &mut mind_model.bones_transforms,
             &mind_model.animations[mind_model.animation_selected],

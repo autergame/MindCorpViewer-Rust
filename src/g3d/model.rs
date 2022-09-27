@@ -120,7 +120,7 @@ impl Model {
 
     pub fn render(
         &self,
-        option: &config_json::OptionsJson,
+        options: &config_json::OptionsJson,
         projection_view_matrix: &glam::Mat4,
         mind_model: &MindModel,
     ) {
@@ -128,7 +128,7 @@ impl Model {
             gl::Disable(gl::CULL_FACE);
             gl::Enable(gl::DEPTH_TEST);
             gl::DepthFunc(gl::LESS);
-            gl::LineWidth(0.0f32);
+            gl::LineWidth(1.0f32);
 
             self.shader.as_ref().unwrap().enable();
             self.shader
@@ -145,7 +145,7 @@ impl Model {
                 gl::FALSE,
                 projection_view_matrix.as_ref() as *const GLfloat,
             );
-            if option.use_animation {
+            if options.use_animation {
                 gl::Uniform1i(self.use_bone_ref, 1);
                 gl::BindBuffer(gl::UNIFORM_BUFFER, self.ubo);
                 gl::BufferSubData(
@@ -166,7 +166,7 @@ impl Model {
             } else {
                 gl::Uniform1i(self.use_bone_ref, 0);
             }
-            if option.show_wireframe {
+            if options.show_wireframe {
                 gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
             }
             for i in 0..mind_model.skn.meshes.len() {
@@ -181,7 +181,7 @@ impl Model {
                     );
                 }
             }
-            if option.show_wireframe {
+            if options.show_wireframe {
                 gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
             }
             gl::BindVertexArray(0);
