@@ -2,6 +2,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read},
+	f32
 };
 
 use gls::glam_read;
@@ -540,7 +541,7 @@ fn uncompress_quaternion(data: u64) -> glam::Quat {
     let v_b = ((data >> 15) & 0x7FFF) as u16;
     let v_c = (data & 0x7FFF) as u16;
 
-    let sqrt2 = std::f32::consts::SQRT_2;
+    let sqrt2 = f32::consts::SQRT_2;
     let a = ((v_a as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2) as f32;
     let b = ((v_b as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2) as f32;
     let c = ((v_c as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2) as f32;

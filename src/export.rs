@@ -1,3 +1,5 @@
+use std::{borrow, collections::HashMap, fs, fs::File, io::Write, mem, path::Path};
+
 use lol::{anm, Animation, Skeleton, Skin};
 
 use gltf::{
@@ -13,17 +15,11 @@ use gltf::{
 
 use gls::glam_read;
 
-use std::{borrow, collections::HashMap, fs::File, io::Write, mem, path::Path};
-
 use crate::MindModel;
 
-pub fn export_model(
-    export_as: u32,
-    model_name: &String,
-	mind_model: &MindModel
-) {
+pub fn export_model(export_as: u32, model_name: &String, mind_model: &MindModel) {
     let export_path = format!("export/{model_name}");
-    std::fs::create_dir_all(&export_path).expect("Could not create export dirs");
+    fs::create_dir_all(&export_path).expect("Could not create export dirs");
 
     let mut accessor_index = 0;
     let mut buffer_view_index = 0;
@@ -773,8 +769,7 @@ fn make_material(
 
     let texture_export_path = format!("{export_path}/textures");
     if export_as == 0 {
-        std::fs::create_dir_all(&texture_export_path)
-            .expect("Could not create texture export dirs");
+        fs::create_dir_all(&texture_export_path).expect("Could not create texture export dirs");
     }
 
     for i in 0..textures_paths.len() {

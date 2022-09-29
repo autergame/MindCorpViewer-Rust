@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, ReadBytesExt};
-use std::io::Cursor;
+use std::{io::Cursor, ops};
 
 pub fn vec2_f32<T: ByteOrder>(reader: &mut Cursor<&Vec<u8>>) -> glam::Vec2 {
     glam::vec2(
@@ -58,7 +58,7 @@ impl U16Vec4 {
     }
 }
 
-impl std::ops::Index<usize> for U16Vec4 {
+impl ops::Index<usize> for U16Vec4 {
     type Output = u16;
     #[inline]
     fn index(&self, index: usize) -> &Self::Output {
@@ -72,7 +72,7 @@ impl std::ops::Index<usize> for U16Vec4 {
     }
 }
 
-impl std::ops::IndexMut<usize> for U16Vec4 {
+impl ops::IndexMut<usize> for U16Vec4 {
     #[inline]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match index {

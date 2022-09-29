@@ -15,7 +15,15 @@ extern crate imgui_opengl_renderer;
 
 use glfw::{Action, Context, Key};
 use native_dialog::FileDialog;
-use std::{env, fs::File, io::Read, ops::Div, path::Path, rc::Rc, sync};
+use std::{
+    env,
+    fs::File,
+    io::Read,
+    ops::{Div, Neg},
+    path::Path,
+    rc::Rc,
+    sync,
+};
 
 mod config_json;
 
@@ -35,84 +43,11 @@ fn main() {
     let mut mind_models: Vec<MindModel> = Vec::with_capacity(json_config.paths.len());
 
     for i in 0..json_config.paths.len() {
-        let mut skn = Skin::read(&read_to_u8(Path::new(&json_config.paths[i].skn)));
-        let skl = Skeleton::read(&read_to_u8(Path::new(&json_config.paths[i].skl)));
-
-        skn.apply_skeleton(&skl);
-
-        let bones_transforms = vec![glam::Mat4::IDENTITY; skl.bones.len()];
-
-        let mut show_meshes: Vec<bool> = vec![true; skn.meshes.len()];
-        if skn.meshes.len() == json_config.meshes[i].len() {
-            show_meshes.copy_from_slice(
-                &json_config.meshes[i]
-                    .iter()
-                    .map(|x| x.show)
-                    .collect::<Vec<bool>>(),
-            );
-        }
-
-        let dds_paths = glob::glob(format!("{}/*.dds", json_config.paths[i].dds).as_str())
-            .expect("Failed to read glob dds pattern")
-            .filter_map(Result::ok);
-
-        let mut textures_paths = vec![];
-        let mut textures_file_names = vec![];
-
-        for path in dds_paths {
-            textures_paths.push(path.to_str().unwrap().to_owned());
-            textures_file_names.push(path.file_stem().unwrap().to_str().unwrap().to_owned());
-        }
-
-        let mut textures_selecteds: Vec<usize> = vec![0; skn.meshes.len()];
-        for j in 0..skn.meshes.len() {
-            if let Some(mesh_json) = json_config.meshes[i]
-                .iter()
-                .find(|x| x.name_texture.get(&skn.meshes[j].submesh.name).is_some())
-            {
-                if let Some(texture_position) = textures_file_names
-                    .iter()
-                    .position(|x| x == mesh_json.name_texture.iter().next().unwrap().1)
-                {
-                    textures_selecteds[j] = texture_position;
-                }
-            }
-        }
-
-        let anm_paths = glob::glob(format!("{}/*.anm", json_config.paths[i].anm).as_str())
-            .expect("Failed to read glob anm pattern")
-            .filter_map(Result::ok);
-
-        let mut animations = vec![];
-        let mut animations_file_names = vec![];
-
-        for path in anm_paths {
-            animations.push(Animation::read(&read_to_u8(&path)));
-            animations_file_names.push(path.file_stem().unwrap().to_str().unwrap().to_owned());
-        }
-
-        let animation_selected = if let Some(animation_position) = animations_file_names
-            .iter()
-            .position(|x| *x == json_config.options[i].selected_animation_path)
-        {
-            animation_position
-        } else {
-            0
-        };
-
-        mind_models.push(MindModel {
-            skn,
-            skl,
-            show_meshes,
-            bones_transforms,
-            textures: vec![],
-            textures_paths,
-            textures_selecteds,
-            textures_file_names,
-            animation_selected,
-            animations,
-            animations_file_names,
-        });
+        mind_models.push(load_mind_model(
+            &json_config.paths[i],
+            &json_config.options[i],
+            &json_config.meshes[i],
+        ));
     }
 
     let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).expect("Could not init GLFW");
@@ -207,17 +142,11 @@ fn main() {
         let mind_model = &mut mind_models[i];
         let skl_bones_count = mind_model.skl.bones.len();
 
-        let mut model = Model::new();
-        let mut line = Lines::new();
-        let mut joint = Joints::new();
+        let mut model = Model::create(&mind_model.skn, skl_bones_count, Rc::clone(&model_shader));
+        let mut line = Lines::create(&mind_model.skl, Rc::clone(&lines_shader));
+        let mut joint = Joints::create(&mind_model.skl, Rc::clone(&joints_shader));
 
-        model.load(&mind_model.skn, skl_bones_count, Rc::clone(&model_shader));
-        line.load(&mind_model.skl, Rc::clone(&lines_shader));
-        joint.load(&mind_model.skl, Rc::clone(&joints_shader));
-
-        model.set_shader_refs(&model_refs);
-        model.bind_ubo(model_ubo_ref, skl_bones_count);
-
+        model.set_shader_refs(&model_refs, model_ubo_ref);
         line.set_shader_refs(&lines_refs);
         joint.set_shader_refs(&joints_refs);
 
@@ -268,19 +197,20 @@ fn main() {
     let mut last_time = 0.0f32;
     let mut last_time_fps = 0.0f32;
 
-    let center_y = if mind_models.len() > 0 {
+    let center_y = if !mind_models.is_empty() {
         mind_models
             .iter()
             .map(|mind_model| mind_model.skn.center.y)
             .sum::<f32>()
             .div(mind_models.len() as f32)
+            .neg()
     } else {
         0.0f32
     };
 
     let fov = 45.0f32.to_radians();
-    let mut translation = glam::vec3(0.0f32, -center_y, 0.0f32);
     let mut yaw_pitch = glam::vec2(90.0f32, 70.0f32);
+    let mut translation = glam::vec3(0.0f32, center_y, 0.0f32);
 
     let mut mouse = Mouse::new(500.0f32, [width as f32 / 2.0f32, height as f32 / 2.0f32]);
 
@@ -466,7 +396,7 @@ fn main() {
                                     export::export_model(
                                         export_as,
                                         &json_config.paths[i].name,
-                                        &mind_model,
+                                        mind_model,
                                     );
                                 }
                             });
@@ -600,17 +530,12 @@ fn main() {
 
                             let animation_selected = 0;
 
-                            let mut model = Model::new();
-                            let mut line = Lines::new();
-                            let mut joint = Joints::new();
+                            let mut model =
+                                Model::create(&skn, skl_bones_count, Rc::clone(&model_shader));
+                            let mut line = Lines::create(&skl, Rc::clone(&lines_shader));
+                            let mut joint = Joints::create(&skl, Rc::clone(&joints_shader));
 
-                            model.load(&skn, skl_bones_count, Rc::clone(&model_shader));
-                            line.load(&skl, Rc::clone(&lines_shader));
-                            joint.load(&skl, Rc::clone(&joints_shader));
-
-                            model.set_shader_refs(&model_refs);
-                            model.bind_ubo(model_ubo_ref, skl_bones_count);
-
+                            model.set_shader_refs(&model_refs, model_ubo_ref);
                             line.set_shader_refs(&lines_refs);
                             joint.set_shader_refs(&joints_refs);
 
@@ -676,7 +601,7 @@ fn main() {
 
                 play_animation(options, mind_model, delta_time, animation_synchronized_time);
 
-                models[i].render(&options, &projection_view_matrix, mind_model);
+                models[i].render(options, &projection_view_matrix, mind_model);
 
                 if options.show_skeleton_bones {
                     lines[i].render(options.use_animation, &projection_view_matrix, mind_model);
@@ -718,6 +643,91 @@ pub struct MindModel {
     pub animation_selected: usize,
     pub animations: Vec<Animation>,
     pub animations_file_names: Vec<String>,
+}
+
+fn load_mind_model(
+    json_config_path: &config_json::PathJson,
+    json_config_options: &config_json::OptionsJson,
+    json_config_meshes: &[config_json::MeshJson],
+) -> MindModel {
+    let mut skn = Skin::read(&read_to_u8(Path::new(&json_config_path.skn)));
+    let skl = Skeleton::read(&read_to_u8(Path::new(&json_config_path.skl)));
+
+    skn.apply_skeleton(&skl);
+
+    let bones_transforms = vec![glam::Mat4::IDENTITY; skl.bones.len()];
+
+    let mut show_meshes: Vec<bool> = vec![true; skn.meshes.len()];
+    if skn.meshes.len() == json_config_meshes.len() {
+        show_meshes.copy_from_slice(
+            &json_config_meshes
+                .iter()
+                .map(|x| x.show)
+                .collect::<Vec<bool>>(),
+        );
+    }
+
+    let dds_paths = glob::glob(format!("{}/*.dds", json_config_path.dds).as_str())
+        .expect("Failed to read glob dds pattern")
+        .filter_map(Result::ok);
+
+    let mut textures_paths = vec![];
+    let mut textures_file_names = vec![];
+
+    for path in dds_paths {
+        textures_paths.push(path.to_str().unwrap().to_owned());
+        textures_file_names.push(path.file_stem().unwrap().to_str().unwrap().to_owned());
+    }
+
+    let mut textures_selecteds: Vec<usize> = vec![0; skn.meshes.len()];
+    for j in 0..skn.meshes.len() {
+        if let Some(mesh_json) = json_config_meshes
+            .iter()
+            .find(|x| x.name_texture.get(&skn.meshes[j].submesh.name).is_some())
+        {
+            if let Some(texture_position) = textures_file_names
+                .iter()
+                .position(|x| x == mesh_json.name_texture.iter().next().unwrap().1)
+            {
+                textures_selecteds[j] = texture_position;
+            }
+        }
+    }
+
+    let anm_paths = glob::glob(format!("{}/*.anm", json_config_path.anm).as_str())
+        .expect("Failed to read glob anm pattern")
+        .filter_map(Result::ok);
+
+    let mut animations = vec![];
+    let mut animations_file_names = vec![];
+
+    for path in anm_paths {
+        animations.push(Animation::read(&read_to_u8(&path)));
+        animations_file_names.push(path.file_stem().unwrap().to_str().unwrap().to_owned());
+    }
+
+    let animation_selected = if let Some(animation_position) = animations_file_names
+        .iter()
+        .position(|x| *x == json_config_options.selected_animation_path)
+    {
+        animation_position
+    } else {
+        0
+    };
+
+    MindModel {
+        skn,
+        skl,
+        show_meshes,
+        bones_transforms,
+        textures: vec![],
+        textures_paths,
+        textures_selecteds,
+        textures_file_names,
+        animation_selected,
+        animations,
+        animations_file_names,
+    }
 }
 
 struct Mouse {
@@ -811,9 +821,7 @@ fn compute_matrix_from_inputs(
         if mouse.offset[1] != mouse.last_offset[1] {
             yaw_pitch[1] -= mouse.offset[1] * 0.5f32;
         }
-        if yaw_pitch[0] > 360.0f32 {
-            yaw_pitch[0] = 0.0f32
-        } else if yaw_pitch[0] < -360.0f32 {
+        if yaw_pitch[0] > 360.0f32 || yaw_pitch[0] < -360.0f32 {
             yaw_pitch[0] = 0.0f32
         }
         if yaw_pitch[1] > 179.0f32 {

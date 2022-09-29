@@ -105,8 +105,8 @@ impl Skin {
             .read_u32::<LittleEndian>()
             .expect("Could not read SKN vertex count");
 
-        let mut bbmin = glam::Vec3::splat(std::f32::MAX);
-        let mut bbmax = glam::Vec3::splat(std::f32::MIN);
+        let mut bbmin = glam::Vec3::splat(f32::MAX);
+        let mut bbmax = glam::Vec3::splat(f32::MIN);
 
         let mut vertex_type = 0u32;
 

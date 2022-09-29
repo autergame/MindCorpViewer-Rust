@@ -2,7 +2,7 @@ use gl::types::{GLchar, GLenum, GLint, GLuint};
 use std::{ffi::CString, ptr};
 
 pub struct Shader {
-    id: GLuint,
+    pub id: GLuint,
 }
 
 impl Shader {
@@ -87,19 +87,6 @@ impl Shader {
             let c_str_name = CString::new(name).expect("Could not create ubo ref CString");
             self.enable();
             gl::GetUniformBlockIndex(self.id, c_str_name.as_ptr())
-        }
-    }
-
-    pub fn ubo_binding(&self, ubo_ref: GLuint, binding: GLuint) {
-        unsafe {
-            self.enable();
-            gl::UniformBlockBinding(self.id, ubo_ref, binding);
-        }
-    }
-
-	pub fn set_uniform_1_int(&self, glref: GLint, unit: i32) {
-        unsafe {
-            gl::Uniform1i(glref, unit);
         }
     }
 

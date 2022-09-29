@@ -1,5 +1,7 @@
-use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fs::File, io::Read, io::Write, path::Path};
+use serde::{Deserialize, Serialize};
+
+use crate::MindModel;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PathJson {
@@ -150,7 +152,7 @@ impl ConfigJson {
         }
     }
 
-    pub fn write(&self, mind_models: &Vec<crate::MindModel>) {
+    pub fn write(&self, mind_models: &[MindModel]) {
         println!("Writing to config file");
 
         let mut config_json = self.clone();
@@ -168,7 +170,7 @@ impl ConfigJson {
         config_json.meshes = Vec::with_capacity(config_json.paths.len());
         for i in 0..config_json.paths.len() {
             let mind_model = &mind_models[i];
-			
+
             let mut meshes = Vec::with_capacity(mind_model.skn.meshes.len());
             for i in 0..mind_model.skn.meshes.len() {
                 let mut name_texture = BTreeMap::new();

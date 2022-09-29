@@ -1,5 +1,5 @@
-use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use std::{mem, os::raw::c_void, ptr};
+use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 
 use gls::{Shader, Texture};
 
@@ -8,7 +8,6 @@ pub struct Floor {
     texture: Texture,
     vao: GLuint,
     vbo: GLuint,
-    ebo: GLuint,
     mvp_ref: GLint,
 }
 
@@ -23,29 +22,26 @@ impl Floor {
         let texture = Texture::load_texture(include_bytes!("../../assets/floor/floor.dds"));
 
         #[rustfmt::skip]
-		let floor_vertices: [GLfloat; 20] = [
+		let floor_vertices: [GLfloat; 30] = [
 			 750.0f32, 0.0f32,  750.0f32, 0.0f32, 1.0f32,
+			 750.0f32, 0.0f32, -750.0f32, 0.0f32, 0.0f32,
+			-750.0f32, 0.0f32,  750.0f32, 1.0f32, 1.0f32,
 			 750.0f32, 0.0f32, -750.0f32, 0.0f32, 0.0f32,
 			-750.0f32, 0.0f32, -750.0f32, 1.0f32, 0.0f32,
 			-750.0f32, 0.0f32,  750.0f32, 1.0f32, 1.0f32,
 		];
 
-        #[rustfmt::skip]
-		let floor_indices: [GLint; 6] = [
-			0, 1, 3,
-			1, 2, 3
-		];
-
         unsafe {
             shader.enable();
-			shader.set_uniform_1_int(refs[0], 0);
+            gl::Uniform1i(refs[0], 0);
 
             let mut vao: GLuint = 0;
-            gl::GenVertexArrays(1, &mut vao);
-            gl::BindVertexArray(vao);
-
             let mut vbo: GLuint = 0;
+
+            gl::GenVertexArrays(1, &mut vao);
             gl::GenBuffers(1, &mut vbo);
+
+            gl::BindVertexArray(vao);
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
             gl::BufferData(
@@ -64,17 +60,6 @@ impl Floor {
             gl::EnableVertexAttribArray(1);
             gl::VertexAttribPointer(1, 2, gl::FLOAT, gl::FALSE, stride, offset);
 
-            let mut ebo: GLuint = 0;
-            gl::GenBuffers(1, &mut ebo);
-
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
-            gl::BufferData(
-                gl::ELEMENT_ARRAY_BUFFER,
-                (floor_indices.len() * mem::size_of::<GLint>()) as GLsizeiptr,
-                floor_indices.as_ptr() as *const c_void,
-                gl::STATIC_DRAW,
-            );
-
             gl::BindVertexArray(0);
 
             Floor {
@@ -82,7 +67,6 @@ impl Floor {
                 texture,
                 vao,
                 vbo,
-                ebo,
                 mvp_ref: refs[1],
             }
         }
@@ -95,18 +79,20 @@ impl Floor {
             gl::DepthFunc(gl::LESS);
 
             self.shader.enable();
-
-            gl::ActiveTexture(gl::TEXTURE0);
-            self.texture.bind();
-
-            gl::BindVertexArray(self.vao);
             gl::UniformMatrix4fv(
                 self.mvp_ref,
                 1,
                 gl::FALSE,
                 projection_view_matrix.as_ref() as *const GLfloat,
             );
-            gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
+
+            gl::ActiveTexture(gl::TEXTURE0);
+            self.texture.bind();
+
+            gl::BindVertexArray(self.vao);
+
+            gl::DrawArrays(gl::TRIANGLES, 0, 6);
+
             gl::BindVertexArray(0);
         }
     }
@@ -116,7 +102,6 @@ impl Drop for Floor {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteBuffers(1, &self.vbo);
-            gl::DeleteBuffers(1, &self.ebo);
             gl::DeleteVertexArrays(1, &self.vao);
         }
     }
