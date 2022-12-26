@@ -72,10 +72,11 @@ impl Skin {
                 reader
                     .read_exact(&mut string)
                     .expect("Could not read SKN SubMeshHeader name");
-                let name = String::from_utf8(string)
-                    .expect("Invalid UTF-8 sequence")
-                    .trim_end_matches('\0')
-                    .to_owned();
+                let name = String::from(
+                    String::from_utf8(string)
+                        .expect("Invalid UTF-8 sequence")
+                        .trim_end_matches('\0'),
+                );
 
                 reader.set_position(reader.position() + 8);
 
@@ -168,7 +169,7 @@ impl Skin {
             meshes
         } else {
             vec![Mesh::new(SubMeshHeader {
-                name: "Base".to_owned(),
+                name: String::from("Base"),
                 indices_offset: 0,
                 indices_count: indices.len() as u32,
             })]

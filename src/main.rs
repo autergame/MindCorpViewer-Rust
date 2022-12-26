@@ -11,7 +11,6 @@ extern crate glfw;
 extern crate gltf;
 
 extern crate imgui;
-extern crate imgui_opengl_renderer;
 
 use glfw::{Action, Context, Key};
 use native_dialog::FileDialog;
@@ -38,6 +37,9 @@ use gls::{ImguiGLFW, Shader, Texture};
 use lol::{Animation, Skeleton, Skin};
 
 fn main() {
+    let cargo_pkg_version = env!("CARGO_PKG_VERSION");
+    let working_dir = env::current_dir().expect("Could not get current dir");
+
     let mut json_config = config_json::ConfigJson::read(Path::new("config.json"));
 
     let mut mind_models: Vec<MindModel> = Vec::with_capacity(json_config.paths.len());
@@ -61,13 +63,13 @@ fn main() {
     #[cfg(target_os = "macos")]
     glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
 
-    let (mut width, mut height) = (1024i32, 576i32);
+    let (mut window_width, mut window_height) = (1024i32, 576i32);
 
     let (mut window, events) = glfw
         .create_window(
-            width as u32,
-            height as u32,
-            format!("MindCorpViewer-Rust v{}", env!("CARGO_PKG_VERSION")).as_str(),
+            window_width as u32,
+            window_height as u32,
+            format!("MindCorpViewer-Rust v{}", cargo_pkg_version).as_str(),
             glfw::WindowMode::Windowed,
         )
         .expect("Could not create GLFW window");
@@ -76,8 +78,8 @@ fn main() {
         let (xpos, ypos, monitor_width, monitor_height) =
             monitor.expect("Could not get GLFW monitor").get_workarea();
         window.set_pos(
-            (monitor_width - xpos) / 2 - width / 2,
-            (monitor_height - ypos) / 2 - height / 2,
+            (monitor_width - xpos) / 2 - window_width / 2,
+            (monitor_height - ypos) / 2 - window_height / 2,
         );
     });
 
@@ -161,21 +163,22 @@ fn main() {
         }
     }
 
-    let mut imgui = imgui::Context::create();
+    let mut imgui_ctx = imgui::Context::create();
 
-    imgui.set_ini_filename(None);
+    imgui_ctx.set_ini_filename(None);
 
-    let style = imgui.style_mut();
+    let style = imgui_ctx.style_mut();
     style.use_dark_colors();
+
     style.grab_rounding = 6.0f32;
     style.frame_rounding = 8.0f32;
     style.window_rounding = 8.0f32;
     style.frame_border_size = 1.0f32;
-    style.window_border_size = 1.0f32;
+    style.window_border_size = 2.0f32;
     style.indent_spacing = style.frame_padding[0] * 3.0f32 - 2.0f32;
     style.window_menu_button_position = imgui::Direction::Right;
 
-    imgui.fonts().add_font(&[
+    imgui_ctx.fonts().add_font(&[
         imgui::FontSource::TtfData {
             data: include_bytes!("../assets/fonts/consola.ttf"),
             size_pixels: 13.0f32,
@@ -191,7 +194,7 @@ fn main() {
         },
     ]);
 
-    let mut imgui_glfw = ImguiGLFW::new(&mut imgui, &mut window);
+    let mut imgui_glfw = ImguiGLFW::new(&mut imgui_ctx);
 
     let mut frames = 0.0f32;
     let mut last_time = 0.0f32;
@@ -212,11 +215,12 @@ fn main() {
     let mut yaw_pitch = glam::vec2(90.0f32, 70.0f32);
     let mut translation = glam::vec3(0.0f32, center_y, 0.0f32);
 
-    let mut mouse = Mouse::new(500.0f32, [width as f32 / 2.0f32, height as f32 / 2.0f32]);
+    let mut mouse = Mouse::new(
+        500.0f32,
+        [window_width as f32 / 2.0f32, window_height as f32 / 2.0f32],
+    );
 
     let mut export_as = 0;
-
-    let working_dir = env::current_dir().expect("Could not get current dir");
 
     let mut add_model_name = String::new();
     let mut add_model_skn = String::new();
@@ -232,8 +236,8 @@ fn main() {
         if delta_time_fps >= 1.0f32 {
             window.set_title(
                 format!(
-                    "MindCorpViewer-Rust - v{} - Fps: {:1.0} / Ms: {:1.3}",
-                    env!("CARGO_PKG_VERSION"),
+                    "MindCorpViewer-Rust v{} - Fps: {:1.0} / Ms: {:1.3}",
+                    cargo_pkg_version,
                     frames / delta_time_fps,
                     1000.0f32 / frames
                 )
@@ -252,19 +256,21 @@ fn main() {
             &events,
             &mut window,
             &mut imgui_glfw,
-            &mut imgui,
-            &mut width,
-            &mut height,
+            &mut imgui_ctx,
+            &mut window_width,
+            &mut window_height,
             &mut mouse,
         );
 
-        let ui = imgui_glfw.frame(delta_time, &window, &mut imgui);
+        imgui_glfw.update_imgui(delta_time, &window, &mut imgui_ctx);
 
-        imgui::Window::new("Main")
+        let ui = imgui_ctx.new_frame();
+
+        ui.window("Main")
             .position([4.0f32, 4.0f32], imgui::Condition::Once)
             .bring_to_front_on_focus(false)
             .always_auto_resize(true)
-            .build(&ui, || {
+            .build(|| {
                 if has_samples && ui.checkbox("Use MSAA", &mut use_samples) {
                     match use_samples {
                         true => unsafe {
@@ -297,7 +303,7 @@ fn main() {
                 for i in 0..mind_models.len() {
                     let mind_model = &mut mind_models[i];
 
-                    let _model_id = ui.push_id(i as i32);
+                    let _model_id = ui.push_id_usize(i);
                     ui.align_text_to_frame_padding();
                     ui.checkbox("##show", &mut json_config.options[i].show);
                     if ui.is_item_hovered() {
@@ -306,15 +312,17 @@ fn main() {
                         });
                     }
                     ui.same_line();
-                    let tree_node = imgui::TreeNode::new(json_config.paths[i].name.to_owned())
+                    let tree_node = ui
+                        .tree_node_config(&json_config.paths[i].name)
                         .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
                         .flags(imgui::TreeNodeFlags::ALLOW_ITEM_OVERLAP)
                         .framed(true)
-                        .push(&ui);
+                        .push();
                     ui.same_line_with_pos(
-                        ui.window_content_region_width() - ui.calc_text_size("\u{F014}")[0],
+                        (ui.window_content_region_max()[0] - ui.window_content_region_min()[0])
+                            - ui.calc_text_size("\u{F014}")[0],
                     );
-                    if confirm_delete_button(&ui) {
+                    if confirm_delete_button(ui) {
                         lines.remove(i);
                         joints.remove(i);
                         models.remove(i);
@@ -330,39 +338,39 @@ fn main() {
                         ui.checkbox("Show Wireframe", &mut options.show_wireframe);
                         ui.checkbox("Show Skeleton Bones", &mut options.show_skeleton_bones);
                         ui.checkbox("Show Skeleton Joints", &mut options.show_skeleton_joints);
-                        imgui::TreeNode::new("Animations")
+                        ui.tree_node_config("Animations")
                             .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
                             .framed(true)
-                            .build(&ui, || {
+                            .build(|| {
                                 ui.checkbox("Use Animation", &mut options.use_animation);
                                 ui.checkbox("Play / Stop", &mut options.play_animation);
                                 ui.checkbox("Loop Animation", &mut options.loop_animation);
                                 ui.checkbox("Next Animation", &mut options.next_animation);
                                 ui.text("CTRL+Click Change To Input");
-                                imgui::Slider::new("Speed", 0.00001f32, 10.0f32)
+                                ui.slider_config("Speed", 0.00001f32, 10.0f32)
                                     .display_format("%.5f")
                                     .flags(imgui::SliderFlags::ALWAYS_CLAMP)
-                                    .build(&ui, &mut options.animation_speed);
-                                imgui::Slider::new(
+                                    .build(&mut options.animation_speed);
+                                ui.slider_config(
                                     "Time",
                                     0.0f32,
                                     mind_model.animations[mind_model.animation_selected].duration,
                                 )
                                 .display_format("%.5f")
                                 .flags(imgui::SliderFlags::ALWAYS_CLAMP)
-                                .build(&ui, &mut options.animation_time);
+                                .build(&mut options.animation_time);
                                 ui.combo_simple_string(
                                     "Animations",
                                     &mut mind_model.animation_selected,
                                     &mind_model.animations_file_names,
                                 );
                             });
-                        imgui::TreeNode::new("Meshes")
+                        ui.tree_node_config("Meshes")
                             .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
                             .framed(true)
-                            .build(&ui, || {
+                            .build(|| {
                                 for i in 0..mind_model.skn.meshes.len() {
-                                    let _meshes_id = ui.push_id(i as i32);
+                                    let _meshes_id = ui.push_id_usize(i);
                                     ui.checkbox(
                                         mind_model.skn.meshes[i].submesh.name.as_str(),
                                         &mut mind_model.show_meshes[i],
@@ -382,14 +390,14 @@ fn main() {
                                             ),
                                             [64.0f32, 64.0f32],
                                         )
-                                        .build(&ui);
+                                        .build(ui);
                                     }
                                 }
                             });
-                        imgui::TreeNode::new("Export")
+                        ui.tree_node_config("Export")
                             .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
                             .framed(true)
-                            .build(&ui, || {
+                            .build(|| {
                                 ui.radio_button("Export as gltf", &mut export_as, 0);
                                 ui.radio_button("Export as glb", &mut export_as, 1);
                                 if ui.button("Export Model") {
@@ -403,10 +411,10 @@ fn main() {
                     }
                 }
                 ui.separator();
-                imgui::TreeNode::new("Add Model")
+                ui.tree_node_config("Add Model")
                     .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
                     .framed(true)
-                    .build(&ui, || {
+                    .build(|| {
                         ui.align_text_to_frame_padding();
                         ui.text("Name:");
                         ui.same_line();
@@ -476,23 +484,12 @@ fn main() {
                             }
                         }
                         if ui.button_with_size("Add", [ui.content_region_avail()[0], 0.0f32]) {
-                            json_config.paths.push(config_json::PathJson {
-                                name: add_model_name.to_owned(),
-                                skn: add_model_skn.to_owned(),
-                                skl: add_model_skl.to_owned(),
-                                dds: add_model_dds.to_owned(),
-                                anm: add_model_anm.to_owned(),
-                            });
-                            json_config.options.push(config_json::OptionsJson::new());
-                            json_config.meshes.push(vec![]);
-
                             let mut skn = Skin::read(&read_to_u8(Path::new(&add_model_skn)));
                             let skl = Skeleton::read(&read_to_u8(Path::new(&add_model_skl)));
 
                             skn.apply_skeleton(&skl);
-                            let skl_bones_count = skl.bones.len();
 
-                            let bones_transforms = vec![glam::Mat4::IDENTITY; skl_bones_count];
+                            let bones_transforms = vec![glam::Mat4::IDENTITY; skl.bones.len()];
                             let show_meshes = vec![true; skn.meshes.len()];
 
                             let dds_paths = glob::glob(format!("{}/*.dds", add_model_dds).as_str())
@@ -503,9 +500,10 @@ fn main() {
                             let mut textures_file_names = vec![];
 
                             for path in dds_paths {
-                                textures_paths.push(path.to_str().unwrap().to_owned());
-                                textures_file_names
-                                    .push(path.file_stem().unwrap().to_str().unwrap().to_owned());
+                                textures_paths.push(String::from(path.to_str().unwrap()));
+                                textures_file_names.push(String::from(
+                                    path.file_stem().unwrap().to_str().unwrap(),
+                                ));
                             }
 
                             let mut textures = vec![];
@@ -524,14 +522,15 @@ fn main() {
 
                             for path in anm_paths {
                                 animations.push(Animation::read(&read_to_u8(&path)));
-                                animations_file_names
-                                    .push(path.file_stem().unwrap().to_str().unwrap().to_owned());
+                                animations_file_names.push(String::from(
+                                    path.file_stem().unwrap().to_str().unwrap(),
+                                ));
                             }
 
                             let animation_selected = 0;
 
                             let mut model =
-                                Model::create(&skn, skl_bones_count, Rc::clone(&model_shader));
+                                Model::create(&skn, skl.bones.len(), Rc::clone(&model_shader));
                             let mut line = Lines::create(&skl, Rc::clone(&lines_shader));
                             let mut joint = Joints::create(&skl, Rc::clone(&joints_shader));
 
@@ -557,6 +556,16 @@ fn main() {
                                 animations_file_names,
                             });
 
+                            json_config.paths.push(config_json::PathJson {
+                                name: add_model_name.to_owned(),
+                                skn: add_model_skn.to_owned(),
+                                skl: add_model_skl.to_owned(),
+                                dds: add_model_dds.to_owned(),
+                                anm: add_model_anm.to_owned(),
+                            });
+                            json_config.options.push(config_json::OptionsJson::new());
+                            json_config.meshes.push(vec![]);
+
                             add_model_name.clear();
                             add_model_skn.clear();
                             add_model_skl.clear();
@@ -572,8 +581,11 @@ fn main() {
             });
 
         let view_matrix = compute_matrix_from_inputs(&mut translation, &mut yaw_pitch, &mut mouse);
-        let projection_matrix =
-            glam::Mat4::perspective_infinite_rh(fov, width as f32 / height as f32, 0.1f32);
+        let projection_matrix = glam::Mat4::perspective_infinite_rh(
+            fov,
+            window_width as f32 / window_height as f32,
+            0.1f32,
+        );
         let projection_view_matrix = projection_matrix * view_matrix;
 
         unsafe {
@@ -620,7 +632,7 @@ fn main() {
 
         unsafe {
             gl::Disable(gl::MULTISAMPLE);
-            imgui_glfw.draw(ui, &mut window);
+            imgui_glfw.draw(&mut imgui_ctx, &mut window);
             gl::Enable(gl::MULTISAMPLE);
         }
 
@@ -675,8 +687,8 @@ fn load_mind_model(
     let mut textures_file_names = vec![];
 
     for path in dds_paths {
-        textures_paths.push(path.to_str().unwrap().to_owned());
-        textures_file_names.push(path.file_stem().unwrap().to_str().unwrap().to_owned());
+        textures_paths.push(String::from(path.to_str().unwrap()));
+        textures_file_names.push(String::from(path.file_stem().unwrap().to_str().unwrap()));
     }
 
     let mut textures_selecteds: Vec<usize> = vec![0; skn.meshes.len()];
@@ -703,7 +715,7 @@ fn load_mind_model(
 
     for path in anm_paths {
         animations.push(Animation::read(&read_to_u8(&path)));
-        animations_file_names.push(path.file_stem().unwrap().to_str().unwrap().to_owned());
+        animations_file_names.push(String::from(path.file_stem().unwrap().to_str().unwrap()));
     }
 
     let animation_selected = if let Some(animation_position) = animations_file_names
@@ -754,18 +766,18 @@ fn process_events(
     events: &sync::mpsc::Receiver<(f64, glfw::WindowEvent)>,
     window: &mut glfw::Window,
     imgui_glfw: &mut ImguiGLFW,
-    imgui: &mut imgui::Context,
-    width: &mut i32,
-    height: &mut i32,
+    imgui_ctx: &mut imgui::Context,
+    window_width: &mut i32,
+    window_height: &mut i32,
     mouse: &mut Mouse,
 ) {
     for (_, event) in glfw::flush_messages(events) {
-        imgui_glfw.handle_event(imgui, &event);
+        imgui_glfw.handle_event(imgui_ctx, &event);
         match event {
             glfw::WindowEvent::FramebufferSize(frame_width, frame_height) => unsafe {
                 gl::Viewport(0, 0, frame_width, frame_height);
-                *width = frame_width;
-                *height = frame_height;
+                *window_width = frame_width;
+                *window_height = frame_height;
             },
             glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                 window.set_should_close(true)
@@ -824,11 +836,7 @@ fn compute_matrix_from_inputs(
         if yaw_pitch[0] > 360.0f32 || yaw_pitch[0] < -360.0f32 {
             yaw_pitch[0] = 0.0f32
         }
-        if yaw_pitch[1] > 179.0f32 {
-            yaw_pitch[1] = 179.0f32;
-        } else if yaw_pitch[1] < 1.0f32 {
-            yaw_pitch[1] = 1.0f32;
-        }
+        yaw_pitch[1] = yaw_pitch[1].clamp(1.0f32, 179.0f32);
     }
 
     let position = glam::vec3(

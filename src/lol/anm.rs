@@ -1,8 +1,8 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     collections::BTreeMap,
+    f32,
     io::{Cursor, Read},
-	f32
 };
 
 use gls::glam_read;
@@ -491,10 +491,11 @@ impl Animation {
             reader
                 .read_exact(&mut string)
                 .expect("Could not read ANM bone name");
-            let name = String::from_utf8(string)
-                .expect("Invalid UTF-8 sequence")
-                .trim_end_matches('\0')
-                .to_owned();
+            let name = String::from(
+                String::from_utf8(string)
+                    .expect("Invalid UTF-8 sequence")
+                    .trim_end_matches('\0'),
+            );
             let hash = hasher::string_to_hash(&name);
 
             reader.set_position(reader.position() + 4);
@@ -542,9 +543,9 @@ fn uncompress_quaternion(data: u64) -> glam::Quat {
     let v_c = (data & 0x7FFF) as u16;
 
     let sqrt2 = f32::consts::SQRT_2;
-    let a = ((v_a as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2) as f32;
-    let b = ((v_b as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2) as f32;
-    let c = ((v_c as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2) as f32;
+    let a = (v_a as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2;
+    let b = (v_b as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2;
+    let c = (v_c as f32 / 32767.0f32) * sqrt2 - 1.0f32 / sqrt2;
     let d = 0.0f32.max(1.0f32 - (a * a + b * b + c * c)).sqrt();
 
     match index {

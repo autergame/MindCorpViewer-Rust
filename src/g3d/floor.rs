@@ -1,5 +1,5 @@
-use std::{mem, os::raw::c_void, ptr};
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
+use std::{mem, os::raw::c_void, ptr};
 
 use gls::{Shader, Texture};
 

@@ -1,5 +1,5 @@
-use std::{collections::BTreeMap, fs::File, io::Read, io::Write, path::Path};
 use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, fs::File, io::Read, io::Write, path::Path};
 
 use crate::MindModel;
 
@@ -70,7 +70,7 @@ impl OptionsJson {
             next_animation: false,
             animation_time: 0.0f32,
             animation_speed: 1.0f32,
-            selected_animation_path: "".to_owned(),
+            selected_animation_path: String::new(),
         }
     }
 }

@@ -102,7 +102,7 @@ pub fn export_model(export_as: u32, model_name: &String, mind_model: &MindModel)
     let scene = Scene {
         extensions: None,
         extras: None,
-        name: Some("Model".to_owned()),
+        name: Some(String::from("Model")),
         nodes: vec![Index::new(mind_model.skl.bones.len() as u32)],
     };
 
@@ -112,7 +112,7 @@ pub fn export_model(export_as: u32, model_name: &String, mind_model: &MindModel)
         extras: None,
         generator: None,
         min_version: None,
-        version: "2.0".to_owned(),
+        version: String::from("2.0"),
     };
 
     let mut root = Root {
@@ -128,8 +128,8 @@ pub fn export_model(export_as: u32, model_name: &String, mind_model: &MindModel)
         samplers: vec![texture_sampler],
         images,
         scenes: vec![scene],
-        extensions_required: vec!["KHR_materials_unlit".to_owned()],
-        extensions_used: vec!["KHR_materials_unlit".to_owned()],
+        extensions_required: vec![String::from("KHR_materials_unlit")],
+        extensions_used: vec![String::from("KHR_materials_unlit")],
         asset,
         scene: Some(Index::new(0)),
         extensions: None,
@@ -823,9 +823,9 @@ fn make_material(
 
         images.push(Image {
             buffer_view,
-            mime_type: Some(gltf::json::image::MimeType(
-                mime::IMAGE_PNG.as_ref().to_owned(),
-            )),
+            mime_type: Some(gltf::json::image::MimeType(String::from(
+                mime::IMAGE_PNG.as_ref(),
+            ))),
             name: None,
             uri,
             extensions: None,

@@ -92,10 +92,11 @@ impl Skeleton {
             reader
                 .read_exact(&mut string)
                 .expect("Could not read SKL bone name");
-            let name = String::from_utf8(string)
-                .expect("Invalid UTF-8 sequence")
-                .trim_end_matches('\0')
-                .to_owned();
+            let name = String::from(
+                String::from_utf8(string)
+                    .expect("Invalid UTF-8 sequence")
+                    .trim_end_matches('\0'),
+            );
             let hash = hasher::string_to_hash(&name);
 
             let parent_id = reader
@@ -269,7 +270,7 @@ impl Skeleton {
             }
             let name = String::from_utf8(string).expect("Invalid UTF-8 sequence");
 
-            reader.set_position(return_offset as u64);
+            reader.set_position(return_offset);
 
             bones.push(Bone {
                 name,
