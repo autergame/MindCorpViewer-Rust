@@ -13,7 +13,6 @@ extern crate gltf;
 extern crate imgui;
 
 use glfw::{Action, Context, Key};
-use native_dialog::FileDialog;
 use std::{
     env,
     fs::File,
@@ -33,7 +32,10 @@ mod gls;
 mod lol;
 
 use g3d::{Floor, Joints, Lines, Model, Skybox};
-use gls::{ImguiGLFW, Shader, Texture};
+use gls::{
+    imgui_layout::{self, AddModel},
+    ImguiGLFW, Screenshot, Shader, Texture,
+};
 use lol::{Animation, Skeleton, Skin};
 
 fn main() {
@@ -98,17 +100,21 @@ fn main() {
 
     let mut has_samples = false;
     let mut use_samples = false;
+
     unsafe {
         let mut samples: gl::types::GLint = 0;
         gl::GetIntegerv(gl::SAMPLES, &mut samples);
+
         if samples >= 1 {
             has_samples = true;
             use_samples = true;
+
             gl::Enable(gl::BLEND);
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
             gl::Enable(gl::MULTISAMPLE);
             gl::Enable(gl::SAMPLE_ALPHA_TO_COVERAGE);
         }
+
         gl::PointSize(4.0f32);
         gl::Enable(gl::LINE_SMOOTH);
         gl::ClearColor(0.5f32, 0.5f32, 0.5f32, 1.0f32);
@@ -140,8 +146,7 @@ fn main() {
     let mut lines: Vec<Lines> = Vec::with_capacity(mind_models.len());
     let mut joints: Vec<Joints> = Vec::with_capacity(mind_models.len());
 
-    for i in 0..mind_models.len() {
-        let mind_model = &mut mind_models[i];
+    for mind_model in &mut mind_models {
         let skl_bones_count = mind_model.skl.bones.len();
 
         let mut model = Model::create(&mind_model.skn, skl_bones_count, Rc::clone(&model_shader));
@@ -162,6 +167,9 @@ fn main() {
                 .push(Texture::load_texture(&read_to_u8(Path::new(path))));
         }
     }
+
+    let mut resolution = [1280, 720];
+    let mut screenshot = Screenshot::new(use_samples, resolution);
 
     let mut imgui_ctx = imgui::Context::create();
 
@@ -215,18 +223,18 @@ fn main() {
     let mut yaw_pitch = glam::vec2(90.0f32, 70.0f32);
     let mut translation = glam::vec3(0.0f32, center_y, 0.0f32);
 
-    let mut mouse = Mouse::new(
-        500.0f32,
-        [window_width as f32 / 2.0f32, window_height as f32 / 2.0f32],
-    );
+    let mut mouse = Mouse::new(500.0f32, [0.0f32, 0.0f32]);
 
     let mut export_as = 0;
+    let mut take_screenshot = false;
 
-    let mut add_model_name = String::new();
-    let mut add_model_skn = String::new();
-    let mut add_model_skl = String::new();
-    let mut add_model_dds = String::new();
-    let mut add_model_anm = String::new();
+    let mut add_model = AddModel {
+        name: String::new(),
+        skn: String::new(),
+        skl: String::new(),
+        dds: String::new(),
+        anm: String::new(),
+    };
 
     while !window.should_close() {
         let current_time = glfw.get_time() as f32;
@@ -271,39 +279,19 @@ fn main() {
             .bring_to_front_on_focus(false)
             .always_auto_resize(true)
             .build(|| {
-                if has_samples && ui.checkbox("Use MSAA", &mut use_samples) {
-                    match use_samples {
-                        true => unsafe {
-                            gl::Enable(gl::BLEND);
-                            gl::Enable(gl::MULTISAMPLE);
-                            gl::Enable(gl::SAMPLE_ALPHA_TO_COVERAGE);
-                        },
-                        false => unsafe {
-                            gl::Disable(gl::BLEND);
-                            gl::Disable(gl::MULTISAMPLE);
-                            gl::Disable(gl::SAMPLE_ALPHA_TO_COVERAGE);
-                        },
-                    }
-                }
-                if ui.checkbox("Enable Vsync", &mut json_config.vsync) {
-                    glfw.set_swap_interval(match json_config.vsync {
-                        true => glfw::SwapInterval::Sync(1),
-                        false => glfw::SwapInterval::None,
-                    });
-                }
-                ui.checkbox("Show Floor", &mut json_config.show_floor);
-                ui.checkbox("Show Skybox", &mut json_config.show_skybox);
-                ui.checkbox("Synchronized Time", &mut json_config.synchronized_time);
-                if ui.is_item_hovered() {
-                    ui.tooltip(|| {
-                        ui.text("Synchronize all models to first model");
-                    });
-                }
-                ui.separator();
-                for i in 0..mind_models.len() {
-                    let mind_model = &mut mind_models[i];
+                imgui_layout::settings(
+                    ui,
+                    &mut glfw,
+                    has_samples,
+                    &mut use_samples,
+                    &mut json_config,
+                );
 
+                ui.separator();
+
+                for i in 0..mind_models.len() {
                     let _model_id = ui.push_id_usize(i);
+
                     ui.align_text_to_frame_padding();
                     ui.checkbox("##show", &mut json_config.options[i].show);
                     if ui.is_item_hovered() {
@@ -311,18 +299,8 @@ fn main() {
                             ui.text("Show / Hide model");
                         });
                     }
-                    ui.same_line();
-                    let tree_node = ui
-                        .tree_node_config(&json_config.paths[i].name)
-                        .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
-                        .flags(imgui::TreeNodeFlags::ALLOW_ITEM_OVERLAP)
-                        .framed(true)
-                        .push();
-                    ui.same_line_with_pos(
-                        (ui.window_content_region_max()[0] - ui.window_content_region_min()[0])
-                            - ui.calc_text_size("\u{F014}")[0],
-                    );
-                    if confirm_delete_button(ui) {
+                    ui.same_line_with_spacing(0.0f32, 3.0f32);
+                    if imgui_layout::confirm_delete_button(ui) {
                         lines.remove(i);
                         joints.remove(i);
                         models.remove(i);
@@ -332,248 +310,125 @@ fn main() {
                         json_config.meshes.remove(i);
                         break;
                     }
-                    if let Some(_node) = tree_node {
-                        let options = &mut json_config.options[i];
-
-                        ui.checkbox("Show Wireframe", &mut options.show_wireframe);
-                        ui.checkbox("Show Skeleton Bones", &mut options.show_skeleton_bones);
-                        ui.checkbox("Show Skeleton Joints", &mut options.show_skeleton_joints);
-                        ui.tree_node_config("Animations")
-                            .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
-                            .framed(true)
-                            .build(|| {
-                                ui.checkbox("Use Animation", &mut options.use_animation);
-                                ui.checkbox("Play / Stop", &mut options.play_animation);
-                                ui.checkbox("Loop Animation", &mut options.loop_animation);
-                                ui.checkbox("Next Animation", &mut options.next_animation);
-                                ui.text("CTRL+Click Change To Input");
-                                ui.slider_config("Speed", 0.00001f32, 10.0f32)
-                                    .display_format("%.5f")
-                                    .flags(imgui::SliderFlags::ALWAYS_CLAMP)
-                                    .build(&mut options.animation_speed);
-                                ui.slider_config(
-                                    "Time",
-                                    0.0f32,
-                                    mind_model.animations[mind_model.animation_selected].duration,
-                                )
-                                .display_format("%.5f")
-                                .flags(imgui::SliderFlags::ALWAYS_CLAMP)
-                                .build(&mut options.animation_time);
-                                ui.combo_simple_string(
-                                    "Animations",
-                                    &mut mind_model.animation_selected,
-                                    &mind_model.animations_file_names,
-                                );
-                            });
-                        ui.tree_node_config("Meshes")
-                            .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
-                            .framed(true)
-                            .build(|| {
-                                for i in 0..mind_model.skn.meshes.len() {
-                                    let _meshes_id = ui.push_id_usize(i);
-                                    ui.checkbox(
-                                        mind_model.skn.meshes[i].submesh.name.as_str(),
-                                        &mut mind_model.show_meshes[i],
-                                    );
-                                    if mind_model.show_meshes[i] {
-                                        ui.combo_simple_string(
-                                            "##texture",
-                                            &mut mind_model.textures_selecteds[i],
-                                            &mind_model.textures_file_names,
-                                        );
-                                        imgui::Image::new(
-                                            imgui::TextureId::new(
-                                                mind_model.textures
-                                                    [mind_model.textures_selecteds[i]]
-                                                    .id
-                                                    as usize,
-                                            ),
-                                            [64.0f32, 64.0f32],
-                                        )
-                                        .build(ui);
-                                    }
-                                }
-                            });
-                        ui.tree_node_config("Export")
-                            .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
-                            .framed(true)
-                            .build(|| {
-                                ui.radio_button("Export as gltf", &mut export_as, 0);
-                                ui.radio_button("Export as glb", &mut export_as, 1);
-                                if ui.button("Export Model") {
-                                    export::export_model(
-                                        export_as,
-                                        &json_config.paths[i].name,
-                                        mind_model,
-                                    );
-                                }
-                            });
+                    ui.same_line_with_spacing(0.0f32, 6.0f32);
+                    if let Some(_tree) = ui
+                        .tree_node_config(&json_config.paths[i].name)
+                        .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
+                        .flags(imgui::TreeNodeFlags::ALLOW_ITEM_OVERLAP)
+                        .framed(true)
+                        .push()
+                    {
+                        {
+                            imgui_layout::model(
+                                ui,
+                                &mut json_config.options[i],
+                                &mut mind_models[i],
+                                &mut export_as,
+                                &json_config.paths[i].name,
+                            );
+                        }
                     }
                 }
+
                 ui.separator();
-                ui.tree_node_config("Add Model")
-                    .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
-                    .framed(true)
-                    .build(|| {
-                        ui.align_text_to_frame_padding();
-                        ui.text("Name:");
-                        ui.same_line();
-                        ui.input_text("##name", &mut add_model_name).build();
-                        ui.align_text_to_frame_padding();
-                        ui.text("SKN: ");
-                        ui.same_line();
-                        ui.input_text("##skn", &mut add_model_skn).build();
-                        ui.same_line();
-                        if ui.button("Select##1") {
-                            let file_dialog_path = FileDialog::new()
-                                .set_location(&working_dir)
-                                .add_filter("SKN", &["skn"])
-                                .show_open_single_file()
-                                .unwrap();
-                            if let Some(path) = file_dialog_path {
-                                add_model_skn.clear();
-                                add_model_skn.insert_str(0, path.to_str().unwrap());
-                            }
-                        }
-                        ui.align_text_to_frame_padding();
-                        ui.text("SKL: ");
-                        ui.same_line();
-                        ui.input_text("##skl", &mut add_model_skl).build();
-                        ui.same_line();
-                        if ui.button("Select##2") {
-                            let file_dialog_path = FileDialog::new()
-                                .set_location(&working_dir)
-                                .add_filter("SKL", &["skl"])
-                                .show_open_single_file()
-                                .unwrap();
-                            if let Some(path) = file_dialog_path {
-                                add_model_skl.clear();
-                                add_model_skl.insert_str(0, path.to_str().unwrap());
-                            }
-                        }
-                        ui.align_text_to_frame_padding();
-                        ui.text("DDS: ");
-                        ui.same_line();
-                        ui.input_text("##dds", &mut add_model_dds).build();
-                        ui.same_line();
-                        if ui.button("Select##3") {
-                            let path = FileDialog::new()
-                                .set_location(&working_dir)
-                                .add_filter("DDS", &["dds"])
-                                .show_open_single_dir()
-                                .unwrap();
-                            if let Some(path) = path {
-                                add_model_dds.clear();
-                                add_model_dds.insert_str(0, path.to_str().unwrap());
-                            }
-                        }
-                        ui.align_text_to_frame_padding();
-                        ui.text("ANM: ");
-                        ui.same_line();
-                        ui.input_text("##anm", &mut add_model_anm).build();
-                        ui.same_line();
-                        if ui.button("Select##4") {
-                            let file_dialog_path = FileDialog::new()
-                                .set_location(&working_dir)
-                                .add_filter("ANM", &["anm"])
-                                .show_open_single_dir()
-                                .unwrap();
-                            if let Some(path) = file_dialog_path {
-                                add_model_anm.clear();
-                                add_model_anm.insert_str(0, path.to_str().unwrap());
-                            }
-                        }
-                        if ui.button_with_size("Add", [ui.content_region_avail()[0], 0.0f32]) {
-                            let mut skn = Skin::read(&read_to_u8(Path::new(&add_model_skn)));
-                            let skl = Skeleton::read(&read_to_u8(Path::new(&add_model_skl)));
 
-                            skn.apply_skeleton(&skl);
+                imgui_layout::add_model(ui, &working_dir, &mut add_model, |add_model| {
+                    let mut skn = Skin::read(&read_to_u8(Path::new(&add_model.skn)));
+                    let skl = Skeleton::read(&read_to_u8(Path::new(&add_model.skl)));
 
-                            let bones_transforms = vec![glam::Mat4::IDENTITY; skl.bones.len()];
-                            let show_meshes = vec![true; skn.meshes.len()];
+                    skn.apply_skeleton(&skl);
 
-                            let dds_paths = glob::glob(format!("{}/*.dds", add_model_dds).as_str())
-                                .expect("Failed to read glob dds pattern")
-                                .filter_map(Result::ok);
+                    let bones_transforms = vec![glam::Mat4::IDENTITY; skl.bones.len()];
+                    let show_meshes = vec![true; skn.meshes.len()];
 
-                            let mut textures_paths = vec![];
-                            let mut textures_file_names = vec![];
+                    let dds_paths = glob::glob(format!("{}/*.dds", add_model.dds).as_str())
+                        .expect("Failed to read glob dds pattern")
+                        .filter_map(Result::ok);
 
-                            for path in dds_paths {
-                                textures_paths.push(String::from(path.to_str().unwrap()));
-                                textures_file_names.push(String::from(
-                                    path.file_stem().unwrap().to_str().unwrap(),
-                                ));
-                            }
+                    let mut textures_paths = vec![];
+                    let mut textures_file_names = vec![];
 
-                            let mut textures = vec![];
-                            for path in textures_paths.iter() {
-                                textures.push(Texture::load_texture(&read_to_u8(Path::new(path))));
-                            }
+                    for path in dds_paths {
+                        textures_paths.push(String::from(path.to_str().unwrap()));
+                        textures_file_names
+                            .push(String::from(path.file_stem().unwrap().to_str().unwrap()));
+                    }
 
-                            let textures_selecteds = vec![0; skn.meshes.len()];
+                    let mut textures = vec![];
+                    for path in textures_paths.iter() {
+                        textures.push(Texture::load_texture(&read_to_u8(Path::new(path))));
+                    }
 
-                            let anm_paths = glob::glob(format!("{}/*.anm", add_model_anm).as_str())
-                                .expect("Failed to read glob anm pattern")
-                                .filter_map(Result::ok);
+                    let textures_selecteds = vec![0; skn.meshes.len()];
 
-                            let mut animations = vec![];
-                            let mut animations_file_names = vec![];
+                    let anm_paths = glob::glob(format!("{}/*.anm", add_model.anm).as_str())
+                        .expect("Failed to read glob anm pattern")
+                        .filter_map(Result::ok);
 
-                            for path in anm_paths {
-                                animations.push(Animation::read(&read_to_u8(&path)));
-                                animations_file_names.push(String::from(
-                                    path.file_stem().unwrap().to_str().unwrap(),
-                                ));
-                            }
+                    let mut animations = vec![];
+                    let mut animations_file_names = vec![];
 
-                            let animation_selected = 0;
+                    for path in anm_paths {
+                        animations.push(Animation::read(&read_to_u8(&path)));
+                        animations_file_names
+                            .push(String::from(path.file_stem().unwrap().to_str().unwrap()));
+                    }
 
-                            let mut model =
-                                Model::create(&skn, skl.bones.len(), Rc::clone(&model_shader));
-                            let mut line = Lines::create(&skl, Rc::clone(&lines_shader));
-                            let mut joint = Joints::create(&skl, Rc::clone(&joints_shader));
+                    let animation_selected = 0;
 
-                            model.set_shader_refs(&model_refs, model_ubo_ref);
-                            line.set_shader_refs(&lines_refs);
-                            joint.set_shader_refs(&joints_refs);
+                    let mut model = Model::create(&skn, skl.bones.len(), Rc::clone(&model_shader));
+                    let mut line = Lines::create(&skl, Rc::clone(&lines_shader));
+                    let mut joint = Joints::create(&skl, Rc::clone(&joints_shader));
 
-                            models.push(model);
-                            lines.push(line);
-                            joints.push(joint);
+                    model.set_shader_refs(&model_refs, model_ubo_ref);
+                    line.set_shader_refs(&lines_refs);
+                    joint.set_shader_refs(&joints_refs);
 
-                            mind_models.push(MindModel {
-                                skn,
-                                skl,
-                                show_meshes,
-                                bones_transforms,
-                                textures,
-                                textures_paths,
-                                textures_selecteds,
-                                textures_file_names,
-                                animation_selected,
-                                animations,
-                                animations_file_names,
-                            });
+                    models.push(model);
+                    lines.push(line);
+                    joints.push(joint);
 
-                            json_config.paths.push(config_json::PathJson {
-                                name: add_model_name.to_owned(),
-                                skn: add_model_skn.to_owned(),
-                                skl: add_model_skl.to_owned(),
-                                dds: add_model_dds.to_owned(),
-                                anm: add_model_anm.to_owned(),
-                            });
-                            json_config.options.push(config_json::OptionsJson::new());
-                            json_config.meshes.push(vec![]);
-
-                            add_model_name.clear();
-                            add_model_skn.clear();
-                            add_model_skl.clear();
-                            add_model_dds.clear();
-                            add_model_anm.clear();
-                        }
+                    mind_models.push(MindModel {
+                        skn,
+                        skl,
+                        show_meshes,
+                        bones_transforms,
+                        textures,
+                        textures_paths,
+                        textures_selecteds,
+                        textures_file_names,
+                        animation_selected,
+                        animations,
+                        animations_file_names,
                     });
+
+                    if add_model.name.is_empty() {
+                        add_model.name = String::from("model");
+                    }
+
+                    json_config.paths.push(config_json::PathJson {
+                        name: add_model.name.to_owned(),
+                        skn: add_model.skn.to_owned(),
+                        skl: add_model.skl.to_owned(),
+                        dds: add_model.dds.to_owned(),
+                        anm: add_model.anm.to_owned(),
+                    });
+                    json_config.options.push(config_json::OptionsJson::new());
+                    json_config.meshes.push(vec![]);
+                });
+
                 ui.separator();
+
+                imgui_layout::screenshot(
+                    ui,
+                    use_samples,
+                    &mut take_screenshot,
+                    &mut resolution,
+                    &mut screenshot,
+                );
+
+                ui.separator();
+
                 if ui.button_with_size("Save Configuration", [ui.content_region_avail()[0], 0.0f32])
                 {
                     json_config.write(&mind_models);
@@ -600,12 +455,19 @@ fn main() {
             floor.render(&projection_view_matrix);
         }
 
+        let projection_view_matrix_mod = if take_screenshot {
+            screenshot.take(fov) * view_matrix
+        } else {
+            projection_view_matrix
+        };
+
         for i in 0..mind_models.len() {
             let animation_synchronized_time = if json_config.synchronized_time && i != 0 {
                 Some(json_config.options[0].animation_time)
             } else {
                 None
             };
+
             let options = &mut json_config.options[i];
 
             if options.show {
@@ -613,21 +475,28 @@ fn main() {
 
                 play_animation(options, mind_model, delta_time, animation_synchronized_time);
 
-                models[i].render(options, &projection_view_matrix, mind_model);
+                models[i].render(options, &projection_view_matrix_mod, mind_model);
 
-                if options.show_skeleton_bones {
-                    lines[i].render(options.use_animation, &projection_view_matrix, mind_model);
-                }
+                if !take_screenshot {
+                    if options.show_skeleton_bones {
+                        lines[i].render(options.use_animation, &projection_view_matrix, mind_model);
+                    }
 
-                if options.show_skeleton_joints {
-                    joints[i].render(
-                        options.use_animation,
-                        use_samples,
-                        &projection_view_matrix,
-                        mind_model,
-                    );
+                    if options.show_skeleton_joints {
+                        joints[i].render(
+                            options.use_animation,
+                            use_samples,
+                            &projection_view_matrix,
+                            mind_model,
+                        );
+                    }
                 }
             }
+        }
+
+        if take_screenshot {
+            take_screenshot = false;
+            screenshot.save([window_width, window_height]);
         }
 
         unsafe {
@@ -785,7 +654,7 @@ fn process_events(
             glfw::WindowEvent::Close => window.set_should_close(true),
             glfw::WindowEvent::MouseButton(button, action, _) => {
                 if (action == Action::Press || action == Action::Repeat)
-                    && imgui_no_window_hovered()
+                    && imgui_layout::no_window_hovered()
                 {
                     if button == glfw::MouseButtonLeft {
                         mouse.state = 1;
@@ -809,7 +678,7 @@ fn process_events(
                 mouse.last_pos[1] = ypos;
             }
             glfw::WindowEvent::Scroll(_, yoffset) => {
-                if imgui_no_window_hovered() {
+                if imgui_layout::no_window_hovered() {
                     mouse.zoom -= yoffset as f32 * 30.0f32;
                     if mouse.zoom < 1.0f32 {
                         mouse.zoom = 1.0f32;
@@ -902,35 +771,6 @@ fn play_animation(
             options.animation_time,
         );
     }
-}
-
-fn confirm_delete_button(ui: &imgui::Ui) -> bool {
-    let delete_button = ui.button("\u{F014}");
-    if ui.is_item_hovered() {
-        ui.tooltip(|| {
-            ui.text("Delete item?");
-        });
-    }
-    if delete_button {
-        ui.open_popup("##deletepopup");
-    }
-    let mut delete = false;
-    ui.popup("##deletepopup", || {
-        ui.text("Are you sure?");
-        if ui.button("Yes") {
-            ui.close_current_popup();
-            delete = true;
-        }
-        ui.same_line();
-        if ui.button("No") {
-            ui.close_current_popup();
-        }
-    });
-    delete
-}
-
-fn imgui_no_window_hovered() -> bool {
-    unsafe { !imgui::sys::igIsWindowHovered(imgui::WindowHoveredFlags::ANY_WINDOW.bits() as i32) }
 }
 
 fn read_to_u8(path: &Path) -> Vec<u8> {

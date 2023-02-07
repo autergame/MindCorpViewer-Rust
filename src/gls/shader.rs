@@ -72,10 +72,10 @@ impl Shader {
 
     pub fn get_refs(&self, names: &[&str]) -> Vec<GLint> {
         unsafe {
-            let mut refs: Vec<GLint> = Vec::with_capacity(names.len());
             self.enable();
+            let mut refs: Vec<GLint> = Vec::with_capacity(names.len());
             for name in names {
-                let c_str_name = CString::new(*name).expect("Could not create ref CString");
+                let c_str_name = CString::new(*name).expect("Could not create ref name CString");
                 refs.push(gl::GetUniformLocation(self.id, c_str_name.as_ptr()));
             }
             refs
@@ -84,9 +84,9 @@ impl Shader {
 
     pub fn get_ubo_ref(&self, name: &str) -> GLuint {
         unsafe {
-            let c_str_name = CString::new(name).expect("Could not create ubo ref CString");
             self.enable();
-            gl::GetUniformBlockIndex(self.id, c_str_name.as_ptr())
+            let c_str_ubo = CString::new(name).expect("Could not create ubo ref CString");
+            gl::GetUniformBlockIndex(self.id, c_str_ubo.as_ptr())
         }
     }
 

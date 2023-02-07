@@ -99,6 +99,8 @@ impl Texture {
 				gl::GenerateMipmap(gl::TEXTURE_2D);
 			}
 
+			gl::BindTexture(gl::TEXTURE_2D, 0);
+
 			Texture { id: texture_id, gltype: gl::TEXTURE_2D }
 		}
 	}
@@ -143,6 +145,8 @@ impl Texture {
 					height /= 2;
 				}
 			}
+
+			gl::BindTexture(gl::TEXTURE_CUBE_MAP, 0);
 
 			Texture { id: texture_id, gltype: gl::TEXTURE_CUBE_MAP }
 		}

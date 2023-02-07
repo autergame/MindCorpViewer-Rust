@@ -111,45 +111,47 @@ pub struct ConfigJson {
 impl ConfigJson {
     pub fn read(path: &Path) -> ConfigJson {
         println!("Reading config file");
-        match File::open(path) {
-            Ok(mut file) => {
-                let mut contents = String::new();
-                match file.read_to_string(&mut contents) {
-                    Ok(_) => {
-                        let config_json: Result<ConfigJson, serde_json::Error> =
-                            serde_json::from_str(&contents);
-                        match config_json {
-                            Ok(mut config_json) => {
-                                if config_json.options.len() < config_json.paths.len() {
-                                    let diff = config_json.paths.len() - config_json.options.len();
-                                    let options = vec![OptionsJson::new(); diff];
-                                    config_json.options.extend_from_slice(&options);
-                                }
-                                if config_json.meshes.len() < config_json.paths.len() {
-                                    let diff = config_json.paths.len() - config_json.meshes.len();
-                                    let meshes = vec![vec![]; diff];
-                                    config_json.meshes.extend_from_slice(&meshes);
-                                }
-                                println!("Finished reading config file");
-                                config_json
-                            }
-                            Err(error) => {
-                                println!("Could not deserialize config: {}", error);
-                                ConfigJson::new()
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        println!("Could not read config file: {}", error);
-                        ConfigJson::new()
-                    }
-                }
-            }
+
+        let mut file = match File::open(path) {
+            Ok(file) => file,
             Err(error) => {
-                println!("Could not open config file: {}", error);
-                ConfigJson::new()
+                println!("Could not open config file: {error}");
+                return ConfigJson::new();
+            }
+        };
+
+        let mut contents = String::new();
+        match file.read_to_string(&mut contents) {
+            Ok(_) => {}
+            Err(error) => {
+                println!("Could not read config file: {error}");
+                return ConfigJson::new();
             }
         }
+
+        let mut config_json = match serde_json::from_str::<ConfigJson>(&contents) {
+            Ok(config_json) => config_json,
+            Err(error) => {
+                println!("Could not deserialize config: {error}");
+                ConfigJson::new()
+            }
+        };
+
+        if config_json.options.len() < config_json.paths.len() {
+            let diff = config_json.paths.len() - config_json.options.len();
+            let options = vec![OptionsJson::new(); diff];
+            config_json.options.extend_from_slice(&options);
+        }
+
+        if config_json.meshes.len() < config_json.paths.len() {
+            let diff = config_json.paths.len() - config_json.meshes.len();
+            let meshes = vec![vec![]; diff];
+            config_json.meshes.extend_from_slice(&meshes);
+        }
+
+        println!("Finished reading config file");
+
+        config_json
     }
 
     pub fn write(&self, mind_models: &[MindModel]) {
@@ -186,12 +188,27 @@ impl ConfigJson {
             config_json.meshes.push(meshes);
         }
 
-        let contents = serde_json::to_string_pretty(&config_json).unwrap();
+        let contents = match serde_json::to_string_pretty(&config_json) {
+            Ok(contents) => contents,
+            Err(error) => {
+                return println!("Could not serialize config file: {error}");
+            }
+        };
 
-        let mut file =
-            File::create(Path::new("config.json")).expect("Could not create config file");
-        file.write_all(contents.as_bytes())
-            .expect("Could not write to config file");
+        let mut file = match File::create(Path::new("config.json")) {
+            Ok(file) => file,
+            Err(error) => {
+                return println!("Could not create config file: {error}");
+            }
+        };
+
+        match file.write_all(contents.as_bytes()) {
+            Ok(_) => {}
+            Err(error) => {
+                return println!("Could not write to config file: {error}");
+            }
+        }
+
         println!("Finished writing to config file");
     }
 

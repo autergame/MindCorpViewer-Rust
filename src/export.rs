@@ -17,7 +17,7 @@ use gls::glam_read;
 
 use crate::MindModel;
 
-pub fn export_model(export_as: u32, model_name: &String, mind_model: &MindModel) {
+pub fn export_model(export_as: u8, model_name: &String, mind_model: &MindModel) {
     let export_path = format!("export/{model_name}");
     fs::create_dir_all(&export_path).expect("Could not create export dirs");
 
@@ -751,7 +751,7 @@ fn make_skeleton(
 fn make_material(
     textures_paths: &[String],
     export_path: &String,
-    export_as: u32,
+    export_as: u8,
     buffer_view_index: &mut u32,
     buffer_view_offset: &mut u32,
 ) -> (
