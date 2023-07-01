@@ -1,4 +1,4 @@
-use std::{borrow, collections::HashMap, fs, fs::File, io::Write, mem, path::Path};
+use std::{borrow, collections::BTreeMap, fs, fs::File, io::Write, mem, path::Path};
 
 use lol::{anm, Animation, Skeleton, Skin};
 
@@ -618,7 +618,7 @@ fn make_primitives(
         ));
         primitives.push(Primitive {
             attributes: {
-                let mut map = HashMap::new();
+                let mut map = BTreeMap::new();
                 map.insert(Valid(Semantic::Positions), Index::new(0));
                 map.insert(Valid(Semantic::Normals), Index::new(1));
                 map.insert(Valid(Semantic::TexCoords(0)), Index::new(2));
