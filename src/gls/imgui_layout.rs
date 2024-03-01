@@ -1,4 +1,3 @@
-use gl::types::GLsizei;
 use glfw::Glfw;
 use native_dialog::FileDialog;
 use std::path::PathBuf;
@@ -13,12 +12,13 @@ pub fn settings(
     glfw: &mut Glfw,
     has_samples: bool,
     use_samples: &mut bool,
-    json_config: &mut ConfigJson,
+    config_json: &mut ConfigJson,
 ) {
     if has_samples && ui.checkbox("Use MSAA", use_samples) {
         match use_samples {
             true => unsafe {
                 gl::Enable(gl::BLEND);
+                gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
                 gl::Enable(gl::MULTISAMPLE);
                 gl::Enable(gl::SAMPLE_ALPHA_TO_COVERAGE);
             },
@@ -30,17 +30,17 @@ pub fn settings(
         }
     }
 
-    if ui.checkbox("Enable Vsync", &mut json_config.vsync) {
-        glfw.set_swap_interval(match json_config.vsync {
+    if ui.checkbox("Enable Vsync", &mut config_json.vsync) {
+        glfw.set_swap_interval(match config_json.vsync {
             true => glfw::SwapInterval::Sync(1),
             false => glfw::SwapInterval::None,
         });
     }
 
-    ui.checkbox("Show Floor", &mut json_config.show_floor);
-    ui.checkbox("Show Skybox", &mut json_config.show_skybox);
+    ui.checkbox("Show Floor", &mut config_json.show_floor);
+    ui.checkbox("Show Skybox", &mut config_json.show_skybox);
 
-    ui.checkbox("Synchronized Time", &mut json_config.synchronized_time);
+    ui.checkbox("Synchronized Time", &mut config_json.synchronized_time);
     if ui.is_item_hovered() {
         ui.tooltip(|| {
             ui.text("Synchronize all models to first model");
@@ -56,6 +56,7 @@ pub fn model(
     name: &String,
 ) {
     ui.checkbox("Show Wireframe", &mut options.show_wireframe);
+    ui.checkbox("Show Skeleton Names", &mut options.show_skeleton_names);
     ui.checkbox("Show Skeleton Bones", &mut options.show_skeleton_bones);
     ui.checkbox("Show Skeleton Joints", &mut options.show_skeleton_joints);
 
@@ -104,10 +105,10 @@ pub fn model(
         .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
         .framed(true)
         .build(|| {
-            for i in 0..mind_model.skn.meshes.len() {
+            for i in 0..mind_model.skin.meshes.len() {
                 let _meshes_id = ui.push_id_usize(i);
                 ui.checkbox(
-                    mind_model.skn.meshes[i].submesh.name.as_str(),
+                    mind_model.skin.meshes[i].submesh.name.as_str(),
                     &mut mind_model.show_meshes[i],
                 );
                 if mind_model.show_meshes[i] {
@@ -141,10 +142,22 @@ pub fn model(
 
 pub struct AddModel {
     pub name: String,
-    pub skn: String,
-    pub skl: String,
-    pub dds: String,
-    pub anm: String,
+    pub skin: String,
+    pub skeleton: String,
+    pub textures: String,
+    pub animations: String,
+}
+
+impl AddModel {
+	pub fn new() -> Self {
+		Self {
+			name: String::new(),
+			skin: String::new(),
+			skeleton: String::new(),
+			textures: String::new(),
+			animations: String::new(),
+		}
+	}
 }
 
 pub fn add_model<F>(
@@ -160,75 +173,76 @@ pub fn add_model<F>(
         .framed(true)
         .build(|| {
             ui.align_text_to_frame_padding();
-            ui.text("Name:");
+            ui.text("Name:       ");
             ui.same_line();
             ui.input_text("##name", &mut add_model.name).build();
 
             ui.align_text_to_frame_padding();
-            ui.text("SKN: ");
+            ui.text("Skin:       ");
             ui.same_line();
-            ui.input_text("##skn", &mut add_model.skn).build();
+            ui.input_text("##skin", &mut add_model.skin).build();
             ui.same_line();
             if ui.button("Select##1") {
                 let file_dialog_path = FileDialog::new()
                     .set_location(&working_dir)
-                    .add_filter("SKN", &["skn"])
+                    .add_filter("Skin", &["skn"])
                     .show_open_single_file()
                     .unwrap();
                 if let Some(path) = file_dialog_path {
-                    add_model.skn.clear();
-                    add_model.skn.insert_str(0, path.to_str().unwrap());
+                    add_model.skin.clear();
+                    add_model.skin.insert_str(0, path.to_str().unwrap());
                 }
             }
 
             ui.align_text_to_frame_padding();
-            ui.text("SKL: ");
+            ui.text("Skeleton:   ");
             ui.same_line();
-            ui.input_text("##skl", &mut add_model.skl).build();
+            ui.input_text("##skeleton", &mut add_model.skeleton).build();
             ui.same_line();
             if ui.button("Select##2") {
                 let file_dialog_path = FileDialog::new()
                     .set_location(&working_dir)
-                    .add_filter("SKL", &["skl"])
+                    .add_filter("Skeleton", &["skl"])
                     .show_open_single_file()
                     .unwrap();
                 if let Some(path) = file_dialog_path {
-                    add_model.skl.clear();
-                    add_model.skl.insert_str(0, path.to_str().unwrap());
+                    add_model.skeleton.clear();
+                    add_model.skeleton.insert_str(0, path.to_str().unwrap());
                 }
             }
 
             ui.align_text_to_frame_padding();
-            ui.text("DDS: ");
+            ui.text("Textures:   ");
             ui.same_line();
-            ui.input_text("##dds", &mut add_model.dds).build();
+            ui.input_text("##textures", &mut add_model.textures).build();
             ui.same_line();
             if ui.button("Select##3") {
                 let path = FileDialog::new()
                     .set_location(&working_dir)
-                    .add_filter("DDS", &["dds"])
+                    .add_filter("Textures", &["dds", "tex"])
                     .show_open_single_dir()
                     .unwrap();
                 if let Some(path) = path {
-                    add_model.dds.clear();
-                    add_model.dds.insert_str(0, path.to_str().unwrap());
+                    add_model.textures.clear();
+                    add_model.textures.insert_str(0, path.to_str().unwrap());
                 }
             }
 
             ui.align_text_to_frame_padding();
-            ui.text("ANM: ");
+            ui.text("Animations: ");
             ui.same_line();
-            ui.input_text("##anm", &mut add_model.anm).build();
+            ui.input_text("##animations", &mut add_model.animations)
+                .build();
             ui.same_line();
             if ui.button("Select##4") {
                 let file_dialog_path = FileDialog::new()
                     .set_location(&working_dir)
-                    .add_filter("ANM", &["anm"])
+                    .add_filter("Animations", &["anm"])
                     .show_open_single_dir()
                     .unwrap();
                 if let Some(path) = file_dialog_path {
-                    add_model.anm.clear();
-                    add_model.anm.insert_str(0, path.to_str().unwrap());
+                    add_model.animations.clear();
+                    add_model.animations.insert_str(0, path.to_str().unwrap());
                 }
             }
 
@@ -236,10 +250,10 @@ pub fn add_model<F>(
                 add_funct(add_model);
 
                 add_model.name.clear();
-                add_model.skn.clear();
-                add_model.skl.clear();
-                add_model.dds.clear();
-                add_model.anm.clear();
+                add_model.skin.clear();
+                add_model.skeleton.clear();
+                add_model.textures.clear();
+                add_model.animations.clear();
             }
         });
 }
@@ -248,8 +262,8 @@ pub fn screenshot(
     ui: &imgui::Ui,
     use_samples: bool,
     take_screenshot: &mut bool,
-    resolution: &mut [u32; 2],
     screenshot: &mut super::Screenshot,
+    config_json: &mut ConfigJson,
 ) {
     ui.tree_node_config("Screenshot")
         .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
@@ -258,7 +272,15 @@ pub fn screenshot(
             ui.align_text_to_frame_padding();
             ui.text("Resolution:");
             ui.same_line();
-            ui.input_scalar_n("##resolution", resolution).build();
+            ui.input_scalar_n("##resolution", &mut config_json.screen_shot_resolution)
+                .build();
+
+            if config_json.screen_shot_resolution[0] == 0 {
+                config_json.screen_shot_resolution[0] = 1280;
+            }
+            if config_json.screen_shot_resolution[1] == 0 {
+                config_json.screen_shot_resolution[1] = 720;
+            }
 
             ui.align_text_to_frame_padding();
             ui.text("File name: ");
@@ -272,24 +294,9 @@ pub fn screenshot(
             ui.combo_simple_string("##format", &mut screenshot.format, &FORMATS);
 
             if ui.button_with_size("Take", [ui.content_region_avail()[0], 0.0f32]) {
-                if resolution[0] == 0 {
-                    resolution[0] = 1280;
-                }
-                if resolution[1] == 0 {
-                    resolution[1] = 720;
-                }
-
-                let resolution = [resolution[0] as GLsizei, resolution[1] as GLsizei];
-
-                if screenshot.resolution[..] != resolution[..]
-                    || screenshot.use_samples != use_samples
-                {
-                    screenshot.resolution = resolution;
-                    screenshot.use_samples = use_samples;
-                    screenshot.update();
-                }
-
                 *take_screenshot = true;
+                screenshot.use_samples = use_samples;
+                screenshot.resolution = config_json.screen_shot_resolution;
             }
         });
 }

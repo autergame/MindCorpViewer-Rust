@@ -1,13 +1,13 @@
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use std::{mem, os::raw::c_void, ptr};
 
-use gls::{Shader, Texture};
+use crate::gls::{Shader, Texture};
 
 pub struct Floor {
     shader: Shader,
     texture: Texture,
     vao: GLuint,
-    vbo: GLuint,
+    bo: GLuint,
     mvp_ref: GLint,
 }
 
@@ -36,14 +36,14 @@ impl Floor {
             gl::Uniform1i(refs[0], 0);
 
             let mut vao: GLuint = 0;
-            let mut vbo: GLuint = 0;
+            let mut bo: GLuint = 0;
 
             gl::GenVertexArrays(1, &mut vao);
-            gl::GenBuffers(1, &mut vbo);
+            gl::GenBuffers(1, &mut bo);
 
             gl::BindVertexArray(vao);
 
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, bo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
                 (floor_vertices.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
@@ -66,7 +66,7 @@ impl Floor {
                 shader,
                 texture,
                 vao,
-                vbo,
+                bo,
                 mvp_ref: refs[1],
             }
         }
@@ -101,7 +101,7 @@ impl Floor {
 impl Drop for Floor {
     fn drop(&mut self) {
         unsafe {
-            gl::DeleteBuffers(1, &self.vbo);
+            gl::DeleteBuffers(1, &self.bo);
             gl::DeleteVertexArrays(1, &self.vao);
         }
     }

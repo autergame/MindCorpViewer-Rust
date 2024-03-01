@@ -7,44 +7,32 @@ pub struct Screenshot {
     pub rbo: Vec<GLuint>,
     pub texture_id: GLuint,
 
-    pub use_samples: bool,
-    pub resolution: [GLsizei; 2],
     pub format: usize,
     pub file_name: String,
+    pub resolution: [GLsizei; 2],
+    pub use_samples: bool,
 }
 
 impl Screenshot {
-    pub fn new(use_samples: bool, resolution: [u32; 2]) -> Screenshot {
-        let resolution = [resolution[0] as GLsizei, resolution[0] as GLsizei];
+    pub fn new(use_samples: bool, resolution: [GLsizei; 2]) -> Screenshot {
+        Screenshot {
+            fbo: vec![0; 2],
+            rbo: vec![0; 3],
+            texture_id: 0,
 
-        unsafe {
-            let mut fbo: Vec<GLuint> = vec![0; 2];
-            let mut rbo: Vec<GLuint> = vec![0; 3];
-            let mut texture_id: GLuint = 0;
-
-            gl::GenFramebuffers(2, fbo.as_mut_ptr());
-            gl::GenRenderbuffers(3, rbo.as_mut_ptr());
-            gl::GenTextures(1, &mut texture_id);
-
-            let mut screenshot = Screenshot {
-                fbo,
-                rbo,
-                texture_id,
-
-                use_samples,
-                resolution,
-                format: 0,
-                file_name: String::from("screenshot.png"),
-            };
-
-            screenshot.update();
-
-            screenshot
+            format: 0,
+            file_name: String::from("screenshot"),
+            resolution,
+            use_samples,
         }
     }
 
     pub fn update(&mut self) {
         unsafe {
+            gl::GenFramebuffers(2, self.fbo.as_mut_ptr());
+            gl::GenRenderbuffers(3, self.rbo.as_mut_ptr());
+            gl::GenTextures(1, &mut self.texture_id);
+
             gl::BindTexture(gl::TEXTURE_2D, self.texture_id);
             gl::TexImage2D(
                 gl::TEXTURE_2D,
@@ -60,6 +48,7 @@ impl Screenshot {
             gl::BindTexture(gl::TEXTURE_2D, 0);
 
             gl::BindFramebuffer(gl::FRAMEBUFFER, self.fbo[0]);
+
             gl::BindRenderbuffer(gl::RENDERBUFFER, self.rbo[0]);
             gl::RenderbufferStorage(
                 gl::RENDERBUFFER,
@@ -127,10 +116,12 @@ impl Screenshot {
             } else {
                 gl::BindFramebuffer(gl::FRAMEBUFFER, self.fbo[0]);
             }
+
             gl::Viewport(0, 0, self.resolution[0], self.resolution[1]);
             gl::ClearColor(0.0f32, 0.0f32, 0.0f32, 0.0f32);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
+
         glam::Mat4::perspective_infinite_rh(
             fov,
             self.resolution[0] as f32 / self.resolution[1] as f32,
@@ -169,12 +160,26 @@ impl Screenshot {
                 buffer.as_mut_ptr() as *mut c_void,
             );
 
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            gl::Viewport(0, 0, window_size[0], window_size[1]);
+            gl::ClearColor(0.5f32, 0.5f32, 0.5f32, 1.0f32);
+
+            gl::DeleteFramebuffers(2, self.fbo.as_ptr());
+            gl::DeleteRenderbuffers(3, self.rbo.as_ptr());
+            gl::DeleteTextures(1, &self.texture_id);
+
             if self.file_name.is_empty() {
-                self.file_name = String::from("screenshot.png");
+                self.file_name = String::from("screenshot");
             }
 
+            let file_name = format!(
+                "{}.{}",
+                self.file_name,
+                FORMATS[self.format].extensions_str()[0]
+            );
+
             image::save_buffer_with_format(
-                Path::new(&self.file_name),
+                Path::new(&file_name),
                 &buffer,
                 self.resolution[0] as u32,
                 self.resolution[1] as u32,
@@ -182,10 +187,6 @@ impl Screenshot {
                 FORMATS[self.format],
             )
             .expect("Could not save screenshot image");
-
-            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
-            gl::Viewport(0, 0, window_size[0], window_size[1]);
-            gl::ClearColor(0.5f32, 0.5f32, 0.5f32, 1.0f32);
         }
     }
 }
@@ -196,13 +197,3 @@ const FORMATS: [image::ImageFormat; 4] = [
     image::ImageFormat::Bmp,
     image::ImageFormat::Tiff,
 ];
-
-impl Drop for Screenshot {
-    fn drop(&mut self) {
-        unsafe {
-            gl::DeleteFramebuffers(2, self.fbo.as_ptr());
-            gl::DeleteRenderbuffers(3, self.rbo.as_ptr());
-            gl::DeleteTextures(1, &self.texture_id);
-        }
-    }
-}

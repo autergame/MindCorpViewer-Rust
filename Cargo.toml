@@ -1,24 +1,31 @@
 [package]
 name = "mindcorpviewer-rust"
-version = "1.4.1"
+version = "2.0.0"
+edition = "2021"
 authors = ["autergame"]
 
 [dependencies]
-native-dialog = "0.6.4"
-byteorder = "1.4.3"
-image = "0.24.6"
+texture2ddecoder = { git = "https://github.com/autergame/texture2ddecoder", version = "0.0.6" }
+native-dialog = "0.7.0"
+freetype-rs = "0.36.0"
+byteorder = "1.5.0"
+image = "0.24.9"
 mime = "0.3.17"
 glob = "0.3.1"
 
 gl = "0.14.0"
-glam = "0.24.1"
-glfw = "0.52.0"
-gltf = { version = "1.2.0", features = ["names", "extras", "KHR_materials_unlit"] }
+glam = "0.25.0"
+glfw = "0.55.0"
+gltf = { version = "1.4.0", features = [
+	"names",
+	"extras",
+	"KHR_materials_unlit",
+] }
 
 imgui = "0.11.0"
 
-serde = { version = "1.0.164", features = ["derive"] }
-serde_json = "1.0.99"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.114"
 
 [profile]
 release = { strip = true }

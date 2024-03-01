@@ -1,9 +1,10 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
-use gls::glam_read;
-
-use lol::{hasher, Skeleton};
+use crate::{
+    gls::glam_read,
+    lol::{hasher, Skeleton},
+};
 
 pub struct SubMeshHeader {
     pub name: String,
@@ -33,8 +34,8 @@ pub struct Skin {
     pub vertices: Vec<glam::Vec3>,
     pub normals: Vec<glam::Vec3>,
     pub uvs: Vec<glam::Vec2>,
-    pub bone_indices: Vec<glam_read::U16Vec4>,
-    pub bone_weights: Vec<glam::Vec4>,
+    pub influences: Vec<glam_read::U16Vec4>,
+    pub weights: Vec<glam::Vec4>,
     pub indices: Vec<u16>,
     pub meshes: Vec<Mesh>,
 }
@@ -136,12 +137,12 @@ impl Skin {
         let mut vertices: Vec<glam::Vec3> = Vec::with_capacity(vertex_count as usize);
         let mut normals: Vec<glam::Vec3> = Vec::with_capacity(vertex_count as usize);
         let mut uvs: Vec<glam::Vec2> = Vec::with_capacity(vertex_count as usize);
-        let mut bone_indices: Vec<glam_read::U16Vec4> = Vec::with_capacity(vertex_count as usize);
-        let mut bone_weights: Vec<glam::Vec4> = Vec::with_capacity(vertex_count as usize);
+        let mut influences: Vec<glam_read::U16Vec4> = Vec::with_capacity(vertex_count as usize);
+        let mut weights: Vec<glam::Vec4> = Vec::with_capacity(vertex_count as usize);
         for _ in 0..vertex_count as usize {
             vertices.push(glam_read::vec3_f32::<LittleEndian>(&mut reader));
-            bone_indices.push(glam_read::vec4_u8(&mut reader));
-            bone_weights.push(glam_read::vec4_f32::<LittleEndian>(&mut reader));
+            influences.push(glam_read::vec4_u8(&mut reader));
+            weights.push(glam_read::vec4_f32::<LittleEndian>(&mut reader));
             normals.push(glam_read::vec3_f32::<LittleEndian>(&mut reader).normalize());
             uvs.push(glam_read::vec2_f32::<LittleEndian>(&mut reader));
 
@@ -188,19 +189,19 @@ impl Skin {
             vertices,
             normals,
             uvs,
-            bone_indices,
-            bone_weights,
+            influences,
+            weights,
             indices,
             meshes,
         }
     }
 
     pub fn apply_skeleton(&mut self, skeleton: &Skeleton) {
-        for skin_bone_indice in self.bone_indices.iter_mut() {
-            skin_bone_indice.x = skeleton.bone_indices[skin_bone_indice.x as usize];
-            skin_bone_indice.y = skeleton.bone_indices[skin_bone_indice.y as usize];
-            skin_bone_indice.z = skeleton.bone_indices[skin_bone_indice.z as usize];
-            skin_bone_indice.w = skeleton.bone_indices[skin_bone_indice.w as usize];
+        for skin_influence in self.influences.iter_mut() {
+            skin_influence.x = skeleton.influences[skin_influence.x as usize];
+            skin_influence.y = skeleton.influences[skin_influence.y as usize];
+            skin_influence.z = skeleton.influences[skin_influence.z as usize];
+            skin_influence.w = skeleton.influences[skin_influence.w as usize];
         }
     }
 }

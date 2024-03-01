@@ -45,7 +45,7 @@ impl ImguiGLFW {
             ));
         }
 
-        let mut io_mut = imgui.io_mut();
+        let io_mut = imgui.io_mut();
         io_mut.key_map[imgui::Key::Tab as usize] = glfw::Key::Tab as u32;
         io_mut.key_map[imgui::Key::LeftArrow as usize] = glfw::Key::Left as u32;
         io_mut.key_map[imgui::Key::RightArrow as usize] = glfw::Key::Right as u32;
@@ -96,8 +96,11 @@ impl ImguiGLFW {
                 imgui.io_mut().add_input_character(character);
             }
             glfw::WindowEvent::Key(key, _, action, modifier) => {
+                let keyi = key as usize;
                 Self::set_mod(imgui, modifier);
-                imgui.io_mut().keys_down[key as usize] = action != glfw::Action::Release;
+                if keyi <= imgui::sys::ImGuiKey_COUNT as usize {
+                    imgui.io_mut().keys_down[keyi] = action != glfw::Action::Release;
+                }
             }
             _ => {}
         }
@@ -109,7 +112,7 @@ impl ImguiGLFW {
         window: &glfw::Window,
         imgui: &mut imgui::Context,
     ) {
-        let mut io_mut = imgui.io_mut();
+        let io_mut = imgui.io_mut();
 
         io_mut.delta_time = delta_time;
 
@@ -153,7 +156,7 @@ impl ImguiGLFW {
     }
 
     fn set_mod(imgui: &mut imgui::Context, modifier: glfw::Modifiers) {
-        let mut io_mut = imgui.io_mut();
+        let io_mut = imgui.io_mut();
         io_mut.key_ctrl = modifier.intersects(glfw::Modifiers::Control);
         io_mut.key_alt = modifier.intersects(glfw::Modifiers::Alt);
         io_mut.key_shift = modifier.intersects(glfw::Modifiers::Shift);
@@ -272,7 +275,7 @@ impl Renderer {
             gl::PixelStorei(gl::UNPACK_ROW_LENGTH, 0);
 
             {
-                let mut atlas = imgui.fonts();
+                let atlas = imgui.fonts();
 
                 let texture = atlas.build_rgba32_texture();
                 gl::TexImage2D(
@@ -407,7 +410,7 @@ impl Renderer {
                 gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
                 gl::BufferData(
                     gl::ARRAY_BUFFER,
-                    (vtx_buffer.len() * mem::size_of::<DrawVert>()) as _,
+                    std::mem::size_of_val(vtx_buffer) as _,
                     vtx_buffer.as_ptr() as _,
                     gl::STREAM_DRAW,
                 );
@@ -415,7 +418,7 @@ impl Renderer {
                 gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
                 gl::BufferData(
                     gl::ELEMENT_ARRAY_BUFFER,
-                    (idx_buffer.len() * mem::size_of::<DrawIdx>()) as _,
+                    std::mem::size_of_val(idx_buffer) as _,
                     idx_buffer.as_ptr() as _,
                     gl::STREAM_DRAW,
                 );

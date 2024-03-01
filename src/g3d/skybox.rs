@@ -1,7 +1,7 @@
 use gl::types::{GLfloat, GLint, GLsizeiptr, GLuint};
 use std::{mem, os::raw::c_void, ptr};
 
-use gls::{Shader, Texture};
+use crate::gls::{Shader, Texture};
 
 pub struct Skybox {
     shader: Shader,

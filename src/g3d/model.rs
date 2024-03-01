@@ -1,24 +1,23 @@
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use std::{mem, os::raw::c_void, ptr, rc::Rc};
 
-use gls::{glam_read, Shader};
-
-use config_json;
-
-use lol::Skin;
-
-use crate::MindModel;
+use crate::{
+    config_json,
+    gls::{glam_read, Shader},
+    lol::Skin,
+    MindModel,
+};
 
 pub struct Model {
     vao: GLuint,
     bo: Vec<GLuint>,
-    shader: Option<Rc<Shader>>,
+    shader: Rc<Shader>,
     mvp_ref: GLint,
-    use_bone_ref: GLint,
+    use_joint_ref: GLint,
 }
 
 impl Model {
-    pub fn create(skin: &Skin, skl_bones_count: usize, shader: Rc<Shader>) -> Model {
+    pub fn create(skin: &Skin, shader: Rc<Shader>) -> Model {
         unsafe {
             let mut vao: GLuint = 0;
             let mut bo: Vec<GLuint> = vec![0; 6];
@@ -53,8 +52,8 @@ impl Model {
             gl::BindBuffer(gl::ARRAY_BUFFER, bo[2]);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (skin.bone_indices.len() * mem::size_of::<glam_read::U16Vec4>()) as GLsizeiptr,
-                skin.bone_indices.as_ptr() as *const c_void,
+                (skin.influences.len() * mem::size_of::<glam_read::U16Vec4>()) as GLsizeiptr,
+                skin.influences.as_ptr() as *const c_void,
                 gl::STATIC_DRAW,
             );
 
@@ -64,8 +63,8 @@ impl Model {
             gl::BindBuffer(gl::ARRAY_BUFFER, bo[3]);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (skin.bone_weights.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
-                skin.bone_weights.as_ptr() as *const c_void,
+                (skin.weights.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
+                skin.weights.as_ptr() as *const c_void,
                 gl::STATIC_DRAW,
             );
 
@@ -75,7 +74,7 @@ impl Model {
             gl::BindBuffer(gl::UNIFORM_BUFFER, bo[4]);
             gl::BufferData(
                 gl::UNIFORM_BUFFER,
-                (skl_bones_count * mem::size_of::<glam::Mat4>()) as GLsizeiptr,
+                (256 * mem::size_of::<glam::Mat4>()) as GLsizeiptr,
                 ptr::null(),
                 gl::DYNAMIC_DRAW,
             );
@@ -93,9 +92,9 @@ impl Model {
             Model {
                 vao,
                 bo,
-                shader: Some(shader),
+                shader,
                 mvp_ref: 0,
-                use_bone_ref: 0,
+                use_joint_ref: 0,
             }
         }
     }
@@ -112,58 +111,67 @@ impl Model {
             gl::DepthFunc(gl::LESS);
             gl::LineWidth(1.0f32);
 
-            self.shader.as_ref().unwrap().enable();
+            self.shader.as_ref().enable();
 
             gl::ActiveTexture(gl::TEXTURE0);
 
             gl::BindVertexArray(self.vao);
+
             gl::UniformMatrix4fv(
                 self.mvp_ref,
                 1,
                 gl::FALSE,
                 projection_view_matrix.as_ref() as *const GLfloat,
             );
+
             if options.use_animation {
-                gl::Uniform1i(self.use_bone_ref, 1);
+                gl::Uniform1i(self.use_joint_ref, 1);
+
                 gl::BindBuffer(gl::UNIFORM_BUFFER, self.bo[4]);
                 gl::BufferSubData(
                     gl::UNIFORM_BUFFER,
                     0,
-                    (mind_model.bones_transforms.len() * mem::size_of::<glam::Mat4>())
+                    (mind_model.joints_transforms.len() * mem::size_of::<glam::Mat4>())
                         as GLsizeiptr,
-                    mind_model.bones_transforms.as_ptr() as *const c_void,
+                    mind_model.joints_transforms.as_ptr() as *const c_void,
                 );
                 gl::BindBufferRange(
                     gl::UNIFORM_BUFFER,
                     0,
                     self.bo[4],
                     0,
-                    (mind_model.bones_transforms.len() * mem::size_of::<glam::Mat4>())
+                    (mind_model.joints_transforms.len() * mem::size_of::<glam::Mat4>())
                         as GLsizeiptr,
                 );
             } else {
-                gl::Uniform1i(self.use_bone_ref, 0);
+                gl::Uniform1i(self.use_joint_ref, 0);
             }
+
             if options.show_wireframe {
                 gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
             }
+
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.bo[5]);
-            for i in 0..mind_model.skn.meshes.len() {
+
+            for i in 0..mind_model.skin.meshes.len() {
                 if mind_model.show_meshes[i] {
                     mind_model.textures[mind_model.textures_selecteds[i]].bind();
+
                     gl::DrawElements(
                         gl::TRIANGLES,
-                        mind_model.skn.meshes[i].submesh.indices_count as GLsizei,
+                        mind_model.skin.meshes[i].submesh.indices_count as GLsizei,
                         gl::UNSIGNED_SHORT,
-                        (mind_model.skn.meshes[i].submesh.indices_offset
+                        (mind_model.skin.meshes[i].submesh.indices_offset
                             * mem::size_of::<u16>() as u32)
                             as *const c_void,
                     );
                 }
             }
+
             if options.show_wireframe {
                 gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
             }
+
             gl::BindVertexArray(0);
         }
     }
@@ -171,9 +179,9 @@ impl Model {
     pub fn set_shader_refs(&mut self, refs: &[GLint], ubo_ref: GLuint) {
         self.mvp_ref = refs[0];
         let diffuse_ref = refs[1];
-        self.use_bone_ref = refs[2];
+        self.use_joint_ref = refs[2];
 
-        let shader = self.shader.as_ref().unwrap();
+        let shader = self.shader.as_ref();
         unsafe {
             shader.enable();
             gl::Uniform1i(diffuse_ref, 0);

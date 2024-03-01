@@ -3,9 +3,11 @@
 
 in vec2 UV;
 
+out vec4 FragColor;
+
 uniform sampler2D Diffuse;
 
 void main()
 {
-	gl_FragColor = texture(Diffuse, UV);
+	FragColor = texture(Diffuse, UV);
 }

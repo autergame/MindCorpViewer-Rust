@@ -1,18 +1,8 @@
-extern crate byteorder;
-extern crate glob;
-extern crate image;
-extern crate mime;
-extern crate native_dialog;
-extern crate serde;
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
 
-extern crate gl;
-extern crate glam;
-extern crate glfw;
-extern crate gltf;
-
-extern crate imgui;
-
-use glfw::{Action, Context, Key};
+use glfw::{Action, Context, GlfwReceiver, Key};
 use std::{
     env,
     fs::File,
@@ -20,21 +10,19 @@ use std::{
     ops::{Div, Neg},
     path::Path,
     rc::Rc,
-    sync,
 };
 
 mod config_json;
-
 mod export;
 
 mod g3d;
 mod gls;
 mod lol;
 
-use g3d::{Floor, Joints, Lines, Model, Skybox};
+use g3d::{Bones, Character, Floor, Joints, Model, Names, Refs, Shaders, Skybox};
 use gls::{
     imgui_layout::{self, AddModel},
-    ImguiGLFW, Screenshot, Shader, Texture,
+    ImguiGLFW, Screenshot, Texture,
 };
 use lol::{Animation, Skeleton, Skin};
 
@@ -42,21 +30,12 @@ fn main() {
     let cargo_pkg_version = env!("CARGO_PKG_VERSION");
     let working_dir = env::current_dir().expect("Could not get current dir");
 
-    let mut json_config = config_json::ConfigJson::read(Path::new("config.json"));
+    let mut config_json = config_json::ConfigJson::read(Path::new("config.json"));
 
-    let mut mind_models: Vec<MindModel> = Vec::with_capacity(json_config.paths.len());
+    let mut glfw = glfw::init(glfw::fail_on_errors).expect("Could not init GLFW");
 
-    for i in 0..json_config.paths.len() {
-        mind_models.push(load_mind_model(
-            &json_config.paths[i],
-            &json_config.options[i],
-            &json_config.meshes[i],
-        ));
-    }
-
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).expect("Could not init GLFW");
-
-    glfw.window_hint(glfw::WindowHint::Samples(Some(4)));
+    let msaa = config_json.msaa.unwrap_or(4);
+    glfw.window_hint(glfw::WindowHint::Samples(Some(msaa)));
     glfw.window_hint(glfw::WindowHint::DoubleBuffer(true));
     glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
     glfw.window_hint(glfw::WindowHint::OpenGlProfile(
@@ -65,7 +44,15 @@ fn main() {
     #[cfg(target_os = "macos")]
     glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
 
-    let (mut window_width, mut window_height) = (1024i32, 576i32);
+    let (monitor_xpos, monitor_ypos, monitor_width, monitor_height) =
+        glfw.with_primary_monitor(|_, monitor| {
+            monitor.expect("Could not get GLFW monitor").get_workarea()
+        });
+
+    let (mut window_width, mut window_height) = (
+        (monitor_width as f32 * 0.75f32) as i32,
+        (monitor_height as f32 * 0.75f32) as i32,
+    );
 
     let (mut window, events) = glfw
         .create_window(
@@ -76,14 +63,10 @@ fn main() {
         )
         .expect("Could not create GLFW window");
 
-    glfw.with_primary_monitor(|_, monitor| {
-        let (xpos, ypos, monitor_width, monitor_height) =
-            monitor.expect("Could not get GLFW monitor").get_workarea();
-        window.set_pos(
-            (monitor_width - xpos) / 2 - window_width / 2,
-            (monitor_height - ypos) / 2 - window_height / 2,
-        );
-    });
+    window.set_pos(
+        (monitor_width - monitor_xpos) / 2 - window_width / 2,
+        (monitor_height - monitor_ypos) / 2 - window_height / 2,
+    );
 
     window.make_current();
 
@@ -94,12 +77,15 @@ fn main() {
     window.set_mouse_button_polling(true);
     window.set_framebuffer_size_polling(true);
 
-    glfw.set_swap_interval(glfw::SwapInterval::None);
+    glfw.set_swap_interval(match config_json.vsync {
+        true => glfw::SwapInterval::Sync(1),
+        false => glfw::SwapInterval::None,
+    });
 
     gl::load_with(|symbol| window.get_proc_address(symbol));
 
     let mut has_samples = false;
-    let mut use_samples = false;
+    let mut use_samples = config_json.msaa.is_some();
 
     unsafe {
         let mut samples: gl::types::GLint = 0;
@@ -107,12 +93,13 @@ fn main() {
 
         if samples >= 1 {
             has_samples = true;
-            use_samples = true;
 
-            gl::Enable(gl::BLEND);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-            gl::Enable(gl::MULTISAMPLE);
-            gl::Enable(gl::SAMPLE_ALPHA_TO_COVERAGE);
+            if use_samples {
+                gl::Enable(gl::BLEND);
+                gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                gl::Enable(gl::MULTISAMPLE);
+                gl::Enable(gl::SAMPLE_ALPHA_TO_COVERAGE);
+            }
         }
 
         gl::PointSize(4.0f32);
@@ -123,56 +110,38 @@ fn main() {
     let floor = Floor::new();
     let skybox = Skybox::new();
 
-    let model_shader = Rc::new(Shader::create(
-        include_str!("../assets/model/model.vert"),
-        include_str!("../assets/model/model.frag"),
-    ));
-    let model_refs = model_shader.get_refs(&["MVP", "Diffuse", "UseBone"]);
-    let model_ubo_ref = model_shader.get_ubo_ref("BonesTransformsBlock");
+    let shaders = Shaders::new();
+    let refs = Refs::new(&shaders);
 
-    let lines_shader = Rc::new(Shader::create(
-        include_str!("../assets/lines/lines.vert"),
-        include_str!("../assets/lines/lines.frag"),
-    ));
-    let lines_refs = lines_shader.get_refs(&["MVP"]);
+    let mut characters: Vec<Character> = Vec::with_capacity(config_json.paths.len());
+    let mut mind_models: Vec<MindModel> = Vec::with_capacity(config_json.paths.len());
 
-    let joints_shader = Rc::new(Shader::create(
-        include_str!("../assets/joints/joints.vert"),
-        include_str!("../assets/joints/joints.frag"),
-    ));
-    let joints_refs = joints_shader.get_refs(&["MVP"]);
+    for i in 0..config_json.paths.len() {
+        let json_config = JsonConfig {
+            meshes: &config_json.meshes[i],
+            selected_animation_path: config_json.paths[i].animations.to_owned(),
+        };
 
-    let mut models: Vec<Model> = Vec::with_capacity(mind_models.len());
-    let mut lines: Vec<Lines> = Vec::with_capacity(mind_models.len());
-    let mut joints: Vec<Joints> = Vec::with_capacity(mind_models.len());
+        let add_model = AddModel {
+            name: config_json.paths[i].name.to_owned(),
+            skin: config_json.paths[i].skin.to_owned(),
+            skeleton: config_json.paths[i].skeleton.to_owned(),
+            textures: config_json.paths[i].textures.to_owned(),
+            animations: config_json.paths[i].animations.to_owned(),
+        };
 
-    for mind_model in &mut mind_models {
-        let skl_bones_count = mind_model.skl.bones.len();
-
-        let mut model = Model::create(&mind_model.skn, skl_bones_count, Rc::clone(&model_shader));
-        let mut line = Lines::create(&mind_model.skl, Rc::clone(&lines_shader));
-        let mut joint = Joints::create(&mind_model.skl, Rc::clone(&joints_shader));
-
-        model.set_shader_refs(&model_refs, model_ubo_ref);
-        line.set_shader_refs(&lines_refs);
-        joint.set_shader_refs(&joints_refs);
-
-        models.push(model);
-        lines.push(line);
-        joints.push(joint);
-
-        for path in mind_model.textures_paths.iter() {
-            mind_model
-                .textures
-                .push(Texture::load_texture(&read_to_u8(Path::new(path))));
-        }
+        mind_models.push(load_mind_model(
+            &add_model,
+            Some(json_config),
+            &mut characters,
+            &shaders,
+            &refs,
+        ));
     }
 
-    let mut resolution = [1280, 720];
-    let mut screenshot = Screenshot::new(use_samples, resolution);
+    let mut screenshot = Screenshot::new(use_samples, config_json.screen_shot_resolution);
 
     let mut imgui_ctx = imgui::Context::create();
-
     imgui_ctx.set_ini_filename(None);
 
     let style = imgui_ctx.style_mut();
@@ -188,7 +157,7 @@ fn main() {
 
     imgui_ctx.fonts().add_font(&[
         imgui::FontSource::TtfData {
-            data: include_bytes!("../assets/fonts/consola.ttf"),
+            data: include_bytes!("../assets/fonts/consolas.ttf"),
             size_pixels: 13.0f32,
             config: None,
         },
@@ -211,7 +180,7 @@ fn main() {
     let center_y = if !mind_models.is_empty() {
         mind_models
             .iter()
-            .map(|mind_model| mind_model.skn.center.y)
+            .map(|mind_model| mind_model.skin.center.y)
             .sum::<f32>()
             .div(mind_models.len() as f32)
             .neg()
@@ -228,13 +197,7 @@ fn main() {
     let mut export_as = 0;
     let mut take_screenshot = false;
 
-    let mut add_model = AddModel {
-        name: String::new(),
-        skn: String::new(),
-        skl: String::new(),
-        dds: String::new(),
-        anm: String::new(),
-    };
+    let mut add_model = AddModel::new();
 
     while !window.should_close() {
         let current_time = glfw.get_time() as f32;
@@ -284,7 +247,7 @@ fn main() {
                     &mut glfw,
                     has_samples,
                     &mut use_samples,
-                    &mut json_config,
+                    &mut config_json,
                 );
 
                 ui.separator();
@@ -293,7 +256,7 @@ fn main() {
                     let _model_id = ui.push_id_usize(i);
 
                     ui.align_text_to_frame_padding();
-                    ui.checkbox("##show", &mut json_config.options[i].show);
+                    ui.checkbox("##show", &mut config_json.options[i].show);
                     if ui.is_item_hovered() {
                         ui.tooltip(|| {
                             ui.text("Show / Hide model");
@@ -301,18 +264,15 @@ fn main() {
                     }
                     ui.same_line_with_spacing(0.0f32, 3.0f32);
                     if imgui_layout::confirm_delete_button(ui) {
-                        lines.remove(i);
-                        joints.remove(i);
-                        models.remove(i);
                         mind_models.remove(i);
-                        json_config.paths.remove(i);
-                        json_config.options.remove(i);
-                        json_config.meshes.remove(i);
+                        config_json.paths.remove(i);
+                        config_json.options.remove(i);
+                        config_json.meshes.remove(i);
                         break;
                     }
                     ui.same_line_with_spacing(0.0f32, 6.0f32);
                     if let Some(_tree) = ui
-                        .tree_node_config(&json_config.paths[i].name)
+                        .tree_node_config(&format!("{}    ", config_json.paths[i].name))
                         .flags(imgui::TreeNodeFlags::SPAN_AVAIL_WIDTH)
                         .flags(imgui::TreeNodeFlags::ALLOW_ITEM_OVERLAP)
                         .framed(true)
@@ -321,10 +281,10 @@ fn main() {
                         {
                             imgui_layout::model(
                                 ui,
-                                &mut json_config.options[i],
+                                &mut config_json.options[i],
                                 &mut mind_models[i],
                                 &mut export_as,
-                                &json_config.paths[i].name,
+                                &config_json.paths[i].name,
                             );
                         }
                     }
@@ -333,88 +293,29 @@ fn main() {
                 ui.separator();
 
                 imgui_layout::add_model(ui, &working_dir, &mut add_model, |add_model| {
-                    let mut skn = Skin::read(&read_to_u8(Path::new(&add_model.skn)));
-                    let skl = Skeleton::read(&read_to_u8(Path::new(&add_model.skl)));
+                    mind_models.push(load_mind_model(
+                        add_model,
+                        None,
+                        &mut characters,
+                        &shaders,
+                        &refs,
+                    ));
 
-                    skn.apply_skeleton(&skl);
+                    let name = if !add_model.name.is_empty() {
+                        add_model.name.to_owned()
+                    } else {
+                        String::from("model")
+                    };
 
-                    let bones_transforms = vec![glam::Mat4::IDENTITY; skl.bones.len()];
-                    let show_meshes = vec![true; skn.meshes.len()];
-
-                    let dds_paths = glob::glob(format!("{}/*.dds", add_model.dds).as_str())
-                        .expect("Failed to read glob dds pattern")
-                        .filter_map(Result::ok);
-
-                    let mut textures_paths = vec![];
-                    let mut textures_file_names = vec![];
-
-                    for path in dds_paths {
-                        textures_paths.push(String::from(path.to_str().unwrap()));
-                        textures_file_names
-                            .push(String::from(path.file_stem().unwrap().to_str().unwrap()));
-                    }
-
-                    let mut textures = vec![];
-                    for path in textures_paths.iter() {
-                        textures.push(Texture::load_texture(&read_to_u8(Path::new(path))));
-                    }
-
-                    let textures_selecteds = vec![0; skn.meshes.len()];
-
-                    let anm_paths = glob::glob(format!("{}/*.anm", add_model.anm).as_str())
-                        .expect("Failed to read glob anm pattern")
-                        .filter_map(Result::ok);
-
-                    let mut animations = vec![];
-                    let mut animations_file_names = vec![];
-
-                    for path in anm_paths {
-                        animations.push(Animation::read(&read_to_u8(&path)));
-                        animations_file_names
-                            .push(String::from(path.file_stem().unwrap().to_str().unwrap()));
-                    }
-
-                    let animation_selected = 0;
-
-                    let mut model = Model::create(&skn, skl.bones.len(), Rc::clone(&model_shader));
-                    let mut line = Lines::create(&skl, Rc::clone(&lines_shader));
-                    let mut joint = Joints::create(&skl, Rc::clone(&joints_shader));
-
-                    model.set_shader_refs(&model_refs, model_ubo_ref);
-                    line.set_shader_refs(&lines_refs);
-                    joint.set_shader_refs(&joints_refs);
-
-                    models.push(model);
-                    lines.push(line);
-                    joints.push(joint);
-
-                    mind_models.push(MindModel {
-                        skn,
-                        skl,
-                        show_meshes,
-                        bones_transforms,
-                        textures,
-                        textures_paths,
-                        textures_selecteds,
-                        textures_file_names,
-                        animation_selected,
-                        animations,
-                        animations_file_names,
+                    config_json.paths.push(config_json::PathJson {
+                        name,
+                        skin: add_model.skin.to_owned(),
+                        skeleton: add_model.skeleton.to_owned(),
+                        textures: add_model.textures.to_owned(),
+                        animations: add_model.animations.to_owned(),
                     });
-
-                    if add_model.name.is_empty() {
-                        add_model.name = String::from("model");
-                    }
-
-                    json_config.paths.push(config_json::PathJson {
-                        name: add_model.name.to_owned(),
-                        skn: add_model.skn.to_owned(),
-                        skl: add_model.skl.to_owned(),
-                        dds: add_model.dds.to_owned(),
-                        anm: add_model.anm.to_owned(),
-                    });
-                    json_config.options.push(config_json::OptionsJson::new());
-                    json_config.meshes.push(vec![]);
+                    config_json.options.push(config_json::OptionsJson::new());
+                    config_json.meshes.push(vec![]);
                 });
 
                 ui.separator();
@@ -423,19 +324,24 @@ fn main() {
                     ui,
                     use_samples,
                     &mut take_screenshot,
-                    &mut resolution,
                     &mut screenshot,
+                    &mut config_json,
                 );
 
                 ui.separator();
 
                 if ui.button_with_size("Save Configuration", [ui.content_region_avail()[0], 0.0f32])
                 {
-                    json_config.write(&mind_models);
+                    config_json.write(&mind_models);
                 }
             });
 
-        let view_matrix = compute_matrix_from_inputs(&mut translation, &mut yaw_pitch, &mut mouse);
+        if take_screenshot {
+            screenshot.update();
+        }
+
+        let (view_matrix, camera_pos) =
+            compute_matrix_from_inputs(&mut translation, &mut yaw_pitch, &mut mouse);
         let projection_matrix = glam::Mat4::perspective_infinite_rh(
             fov,
             window_width as f32 / window_height as f32,
@@ -447,11 +353,11 @@ fn main() {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
 
-        if json_config.show_skybox {
+        if config_json.show_skybox {
             skybox.render(&view_matrix, &projection_matrix);
         }
 
-        if json_config.show_floor {
+        if config_json.show_floor {
             floor.render(&projection_view_matrix);
         }
 
@@ -462,34 +368,49 @@ fn main() {
         };
 
         for i in 0..mind_models.len() {
-            let animation_synchronized_time = if json_config.synchronized_time && i != 0 {
-                Some(json_config.options[0].animation_time)
+            let animation_synchronized_time = if config_json.synchronized_time && i != 0 {
+                Some(config_json.options[0].animation_time)
             } else {
                 None
             };
 
-            let options = &mut json_config.options[i];
+            let options = &mut config_json.options[i];
 
             if options.show {
+                let character = &mut characters[i];
                 let mind_model = &mut mind_models[i];
 
                 play_animation(options, mind_model, delta_time, animation_synchronized_time);
 
-                models[i].render(options, &projection_view_matrix_mod, mind_model);
+                character
+                    .model
+                    .render(options, &projection_view_matrix_mod, mind_model);
 
-                if !take_screenshot {
-                    if options.show_skeleton_bones {
-                        lines[i].render(options.use_animation, &projection_view_matrix, mind_model);
-                    }
+                if options.show_skeleton_bones {
+                    character.bones.render(
+                        options.use_animation,
+                        &projection_view_matrix_mod,
+                        mind_model,
+                    );
+                }
 
-                    if options.show_skeleton_joints {
-                        joints[i].render(
-                            options.use_animation,
-                            use_samples,
-                            &projection_view_matrix,
-                            mind_model,
-                        );
-                    }
+                if options.show_skeleton_names {
+                    character.names.render(
+                        options.use_animation,
+                        &camera_pos,
+                        &view_matrix,
+                        &projection_view_matrix_mod,
+                        mind_model,
+                    );
+                }
+
+                if options.show_skeleton_joints {
+                    character.joints.render(
+                        options.use_animation,
+                        use_samples,
+                        &projection_view_matrix_mod,
+                        mind_model,
+                    );
                 }
             }
         }
@@ -509,104 +430,144 @@ fn main() {
     }
 }
 
+pub struct JsonConfig<'a> {
+    meshes: &'a [config_json::MeshJson],
+    selected_animation_path: String,
+}
+
 pub struct MindModel {
-    pub skn: Skin,
-    pub skl: Skeleton,
+    pub skin: Skin,
+    pub skeleton: Skeleton,
 
     pub show_meshes: Vec<bool>,
-    pub bones_transforms: Vec<glam::Mat4>,
+    pub joints_transforms: Vec<glam::Mat4>,
 
     pub textures: Vec<Texture>,
     pub textures_paths: Vec<String>,
     pub textures_selecteds: Vec<usize>,
     pub textures_file_names: Vec<String>,
 
-    pub animation_selected: usize,
     pub animations: Vec<Animation>,
+    pub animation_selected: usize,
     pub animations_file_names: Vec<String>,
 }
 
 fn load_mind_model(
-    json_config_path: &config_json::PathJson,
-    json_config_options: &config_json::OptionsJson,
-    json_config_meshes: &[config_json::MeshJson],
+    add_model: &AddModel,
+    config_json: Option<JsonConfig>,
+    characters: &mut Vec<Character>,
+    shaders: &Shaders,
+    refs: &Refs,
 ) -> MindModel {
-    let mut skn = Skin::read(&read_to_u8(Path::new(&json_config_path.skn)));
-    let skl = Skeleton::read(&read_to_u8(Path::new(&json_config_path.skl)));
+    let mut skin = Skin::read(&read_to_u8(Path::new(&add_model.skin)));
+    let skeleton = Skeleton::read(&read_to_u8(Path::new(&add_model.skeleton)));
 
-    skn.apply_skeleton(&skl);
+    skin.apply_skeleton(&skeleton);
 
-    let bones_transforms = vec![glam::Mat4::IDENTITY; skl.bones.len()];
+    let joints_transforms = vec![glam::Mat4::IDENTITY; skeleton.joints.len()];
 
-    let mut show_meshes: Vec<bool> = vec![true; skn.meshes.len()];
-    if skn.meshes.len() == json_config_meshes.len() {
-        show_meshes.copy_from_slice(
-            &json_config_meshes
-                .iter()
-                .map(|x| x.show)
-                .collect::<Vec<bool>>(),
-        );
+    let mut show_meshes: Vec<bool> = vec![true; skin.meshes.len()];
+    if let Some(config_json) = &config_json {
+        if skin.meshes.len() == config_json.meshes.len() {
+            show_meshes.copy_from_slice(
+                &config_json
+                    .meshes
+                    .iter()
+                    .map(|x| x.show)
+                    .collect::<Vec<bool>>(),
+            );
+        }
     }
 
-    let dds_paths = glob::glob(format!("{}/*.dds", json_config_path.dds).as_str())
+    let dds_paths = glob::glob(format!("{}/*.dds", add_model.textures).as_str())
         .expect("Failed to read glob dds pattern")
+        .filter_map(Result::ok);
+
+    let tex_paths = glob::glob(format!("{}/*.tex", add_model.textures).as_str())
+        .expect("Failed to read glob tex pattern")
         .filter_map(Result::ok);
 
     let mut textures_paths = vec![];
     let mut textures_file_names = vec![];
 
-    for path in dds_paths {
+    for path in dds_paths.chain(tex_paths) {
         textures_paths.push(String::from(path.to_str().unwrap()));
         textures_file_names.push(String::from(path.file_stem().unwrap().to_str().unwrap()));
     }
 
-    let mut textures_selecteds: Vec<usize> = vec![0; skn.meshes.len()];
-    for j in 0..skn.meshes.len() {
-        if let Some(mesh_json) = json_config_meshes
-            .iter()
-            .find(|x| x.name_texture.get(&skn.meshes[j].submesh.name).is_some())
-        {
-            if let Some(texture_position) = textures_file_names
+    let mut textures = vec![];
+    for path in textures_paths.iter() {
+        textures.push(Texture::load_texture(&read_to_u8(Path::new(path))));
+    }
+
+    let mut textures_selecteds: Vec<usize> = vec![0; skin.meshes.len()];
+    if let Some(config_json) = &config_json {
+        for j in 0..skin.meshes.len() {
+            if let Some(mesh_json) = config_json
+                .meshes
                 .iter()
-                .position(|x| x == mesh_json.name_texture.iter().next().unwrap().1)
+                .find(|x| x.name_texture.get(&skin.meshes[j].submesh.name).is_some())
             {
-                textures_selecteds[j] = texture_position;
+                if let Some(texture_position) = textures_file_names
+                    .iter()
+                    .position(|x| x == mesh_json.name_texture.iter().next().unwrap().1)
+                {
+                    textures_selecteds[j] = texture_position;
+                }
             }
         }
     }
 
-    let anm_paths = glob::glob(format!("{}/*.anm", json_config_path.anm).as_str())
+    let animations_paths = glob::glob(format!("{}/*.anm", add_model.animations).as_str())
         .expect("Failed to read glob anm pattern")
         .filter_map(Result::ok);
 
     let mut animations = vec![];
     let mut animations_file_names = vec![];
 
-    for path in anm_paths {
+    for path in animations_paths {
         animations.push(Animation::read(&read_to_u8(&path)));
         animations_file_names.push(String::from(path.file_stem().unwrap().to_str().unwrap()));
     }
 
-    let animation_selected = if let Some(animation_position) = animations_file_names
-        .iter()
-        .position(|x| *x == json_config_options.selected_animation_path)
-    {
-        animation_position
-    } else {
-        0
-    };
+    let mut animation_selected = 0;
+    if let Some(config_json) = &config_json {
+        if let Some(animation_position) = animations_file_names
+            .iter()
+            .position(|x| *x == config_json.selected_animation_path)
+        {
+            animation_selected = animation_position;
+        }
+    }
+
+    let mut model = Model::create(&skin, Rc::clone(&shaders.model));
+    let mut names = Names::create(&skeleton, Rc::clone(&shaders.names));
+    let mut bones = Bones::create(&skeleton, Rc::clone(&shaders.bones));
+    let mut joints = Joints::create(&skeleton, Rc::clone(&shaders.joints));
+
+    model.set_shader_refs(&refs.model, refs.model_ubo);
+    names.set_shader_refs(&refs.names);
+    bones.set_shader_refs(&refs.bones);
+    joints.set_shader_refs(&refs.joints);
+
+    characters.push(Character {
+        bones,
+        joints,
+        model,
+        names,
+    });
 
     MindModel {
-        skn,
-        skl,
+        skin,
+        skeleton,
         show_meshes,
-        bones_transforms,
-        textures: vec![],
+        joints_transforms,
+        textures,
         textures_paths,
         textures_selecteds,
         textures_file_names,
-        animation_selected,
         animations,
+        animation_selected,
         animations_file_names,
     }
 }
@@ -632,7 +593,7 @@ impl Mouse {
 }
 
 fn process_events(
-    events: &sync::mpsc::Receiver<(f64, glfw::WindowEvent)>,
+    events: &GlfwReceiver<(f64, glfw::WindowEvent)>,
     window: &mut glfw::Window,
     imgui_glfw: &mut ImguiGLFW,
     imgui_ctx: &mut imgui::Context,
@@ -679,7 +640,7 @@ fn process_events(
             }
             glfw::WindowEvent::Scroll(_, yoffset) => {
                 if imgui_layout::no_window_hovered() {
-                    mouse.zoom -= yoffset as f32 * 30.0f32;
+                    mouse.zoom -= yoffset as f32 * 25.0f32;
                     if mouse.zoom < 1.0f32 {
                         mouse.zoom = 1.0f32;
                     }
@@ -694,7 +655,7 @@ fn compute_matrix_from_inputs(
     translation: &mut glam::Vec3,
     yaw_pitch: &mut glam::Vec2,
     mouse: &mut Mouse,
-) -> glam::Mat4 {
+) -> (glam::Mat4, glam::Vec3) {
     if mouse.state == 1 {
         if mouse.offset[0] != mouse.last_offset[0] {
             yaw_pitch[0] += mouse.offset[0] * 0.5f32;
@@ -731,12 +692,13 @@ fn compute_matrix_from_inputs(
     mouse.last_offset[0] = mouse.offset[0];
     mouse.last_offset[1] = mouse.offset[1];
 
-    let mut viewmatrix = glam::Mat4::look_at_rh(position * mouse.zoom, glam::Vec3::ZERO, up);
+    let eye = position * mouse.zoom;
+    let camera_pos = eye - *translation;
 
-    viewmatrix *= glam::Mat4::from_translation(*translation)
-        * glam::Mat4::from_scale(glam::vec3(-1.0f32, 1.0f32, 1.0f32));
+    let mut view_matrix = glam::Mat4::look_to_rh(eye, -eye, up);
+    view_matrix *= glam::Mat4::from_translation(*translation);
 
-    viewmatrix
+    (view_matrix, camera_pos)
 }
 
 fn play_animation(
@@ -765,18 +727,18 @@ fn play_animation(
             options.animation_time = animation_time;
         }
         lol::anm::run_animation(
-            &mut mind_model.bones_transforms,
+            &mut mind_model.joints_transforms,
             &mind_model.animations[mind_model.animation_selected],
-            &mind_model.skl,
+            &mind_model.skeleton,
             options.animation_time,
         );
     }
 }
 
 fn read_to_u8(path: &Path) -> Vec<u8> {
+    println!("Reading file: {}", path.to_str().unwrap());
     let mut file = File::open(path).expect("Could not open file");
     let mut contents: Vec<u8> = vec![];
-    println!("Reading file: {}", path.to_str().unwrap());
     file.read_to_end(&mut contents)
         .expect("Could not read file");
     contents

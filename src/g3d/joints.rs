@@ -1,16 +1,12 @@
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use std::{mem, os::raw::c_void, ptr, rc::Rc};
 
-use gls::Shader;
-
-use lol::Skeleton;
-
-use crate::MindModel;
+use crate::{gls::Shader, lol::Skeleton, MindModel};
 
 pub struct Joints {
     vao: GLuint,
-    vbo: GLuint,
-    shader: Option<Rc<Shader>>,
+    bo: GLuint,
+    shader: Rc<Shader>,
     mvp_ref: GLint,
     joints: Vec<glam::Vec4>,
     joints_tpose: *const glam::Vec4,
@@ -18,29 +14,28 @@ pub struct Joints {
 
 impl Joints {
     pub fn create(skl: &Skeleton, shader: Rc<Shader>) -> Joints {
-        let mut joints: Vec<glam::Vec4> = Vec::with_capacity(skl.bones.len());
+        let mut joints: Vec<glam::Vec4> = Vec::with_capacity(skl.joints.len());
 
-        for bone in skl.bones.iter() {
-            joints.push(bone.global_matrix * glam::Vec4::ONE);
+        for joint in skl.joints.iter() {
+            joints.push(joint.global_matrix * glam::Vec4::ONE);
         }
 
         let joints_tpose = joints.as_ptr();
-        let shader = Some(shader);
 
         unsafe {
             let mut vao: GLuint = 0;
-            let mut vbo: GLuint = 0;
+            let mut bo: GLuint = 0;
 
             gl::GenVertexArrays(1, &mut vao);
-            gl::GenBuffers(1, &mut vbo);
+            gl::GenBuffers(1, &mut bo);
 
             gl::BindVertexArray(vao);
 
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, bo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (skl.bones.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
-                joints.as_ptr() as *const c_void,
+                (joints.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
+                joints_tpose as *const c_void,
                 gl::DYNAMIC_DRAW,
             );
 
@@ -51,7 +46,7 @@ impl Joints {
 
             Joints {
                 vao,
-                vbo,
+                bo,
                 shader,
                 mvp_ref: 0,
                 joints,
@@ -68,9 +63,9 @@ impl Joints {
         mind_model: &MindModel,
     ) {
         let joints_ptr = if use_animation {
-            for i in 0..mind_model.skl.bones.len() {
-                self.joints[i] = mind_model.bones_transforms[i]
-                    * mind_model.skl.bones[i].global_matrix
+            for i in 0..mind_model.skeleton.joints.len() {
+                self.joints[i] = mind_model.joints_transforms[i]
+                    * mind_model.skeleton.joints[i].global_matrix
                     * glam::Vec4::ONE;
             }
             self.joints.as_ptr()
@@ -82,7 +77,7 @@ impl Joints {
             gl::Enable(gl::BLEND);
             gl::Disable(gl::DEPTH_TEST);
 
-            self.shader.as_ref().unwrap().enable();
+            self.shader.as_ref().enable();
             gl::UniformMatrix4fv(
                 self.mvp_ref,
                 1,
@@ -92,7 +87,7 @@ impl Joints {
 
             gl::BindVertexArray(self.vao);
 
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.bo);
             gl::BufferSubData(
                 gl::ARRAY_BUFFER,
                 0,
@@ -118,7 +113,7 @@ impl Joints {
 impl Drop for Joints {
     fn drop(&mut self) {
         unsafe {
-            gl::DeleteBuffers(1, &self.vbo);
+            gl::DeleteBuffers(1, &self.bo);
             gl::DeleteVertexArrays(1, &self.vao);
         }
     }

@@ -1,63 +1,58 @@
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use std::{mem, os::raw::c_void, ptr, rc::Rc};
 
-use gls::Shader;
+use crate::{gls::Shader, lol::Skeleton, MindModel};
 
-use lol::Skeleton;
-
-use crate::MindModel;
-
-pub struct Lines {
+pub struct Bones {
     vao: GLuint,
-    vbo: Vec<GLuint>,
-    shader: Option<Rc<Shader>>,
+    bo: Vec<GLuint>,
+    shader: Rc<Shader>,
     mvp_ref: GLint,
-    lines: Vec<glam::Vec4>,
-    lines_tpose: *const glam::Vec4,
+    bones: Vec<glam::Vec4>,
+    bones_tpose: *const glam::Vec4,
 }
 
-impl Lines {
-    pub fn create(skl: &Skeleton, shader: Rc<Shader>) -> Lines {
-        let mut lines: Vec<glam::Vec4> = Vec::with_capacity(skl.bones.len() * 2);
-        let mut colors: Vec<glam::Vec3> = Vec::with_capacity(skl.bones.len() * 2);
+impl Bones {
+    pub fn create(skl: &Skeleton, shader: Rc<Shader>) -> Bones {
+        let mut bones: Vec<glam::Vec4> = Vec::with_capacity(skl.joints.len() * 2);
+        let mut colors: Vec<glam::Vec3> = Vec::with_capacity(skl.joints.len() * 2);
 
-        for bone in skl.bones.iter() {
-            let parent_id = bone.parent_id;
+        for joint in skl.joints.iter() {
+            let parent_id = joint.parent_id;
             if parent_id != -1 {
-                lines.push(skl.bones[parent_id as usize].global_matrix * glam::Vec4::ONE);
-                lines.push(bone.global_matrix * glam::Vec4::ONE);
+                bones.push(skl.joints[parent_id as usize].global_matrix * glam::Vec4::ONE);
+                bones.push(joint.global_matrix * glam::Vec4::ONE);
                 colors.push(glam::vec3(0.0f32, 1.0f32, 0.0f32));
                 colors.push(glam::vec3(0.0f32, 0.0f32, 1.0f32));
             }
         }
 
-        let lines_tpose = lines.as_ptr();
-        let shader = Some(shader);
+        let bones_tpose = bones.as_ptr();
 
         unsafe {
             let mut vao: GLuint = 0;
-            let mut vbo: Vec<GLuint> = vec![0; 2];
+            let mut bo: Vec<GLuint> = vec![0; 2];
 
             gl::GenVertexArrays(1, &mut vao);
-            gl::GenBuffers(2, vbo.as_mut_ptr());
+            gl::GenBuffers(2, bo.as_mut_ptr());
 
             gl::BindVertexArray(vao);
 
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo[0]);
+            gl::BindBuffer(gl::ARRAY_BUFFER, bo[0]);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (skl.bones.len() * 2 * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
-                lines.as_ptr() as *const c_void,
+                (bones.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
+                bones_tpose as *const c_void,
                 gl::DYNAMIC_DRAW,
             );
 
             gl::EnableVertexAttribArray(0);
             gl::VertexAttribPointer(0, 4, gl::FLOAT, gl::FALSE, 0, ptr::null());
 
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo[1]);
+            gl::BindBuffer(gl::ARRAY_BUFFER, bo[1]);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (skl.bones.len() * 2 * mem::size_of::<glam::Vec3>()) as GLsizeiptr,
+                (colors.len() * mem::size_of::<glam::Vec3>()) as GLsizeiptr,
                 colors.as_ptr() as *const c_void,
                 gl::STATIC_DRAW,
             );
@@ -67,13 +62,13 @@ impl Lines {
 
             gl::BindVertexArray(0);
 
-            Lines {
+            Bones {
                 vao,
-                vbo,
+                bo,
                 shader,
                 mvp_ref: 0,
-                lines,
-                lines_tpose,
+                bones,
+                bones_tpose,
             }
         }
     }
@@ -84,30 +79,34 @@ impl Lines {
         projection_view_matrix: &glam::Mat4,
         mind_model: &MindModel,
     ) {
-        let lines_ptr = if use_animation {
+        let bones_ptr = if use_animation {
             let mut line_index: usize = 0;
-            for i in 0..mind_model.skl.bones.len() {
-                let parent_id = mind_model.skl.bones[i].parent_id;
+
+            for i in 0..mind_model.skeleton.joints.len() {
+                let parent_id = mind_model.skeleton.joints[i].parent_id;
+
                 if parent_id != -1 {
-                    self.lines[line_index] = mind_model.bones_transforms[parent_id as usize]
-                        * mind_model.skl.bones[parent_id as usize].global_matrix
+                    self.bones[line_index] = mind_model.joints_transforms[parent_id as usize]
+                        * mind_model.skeleton.joints[parent_id as usize].global_matrix
                         * glam::Vec4::ONE;
-                    self.lines[line_index + 1] = mind_model.bones_transforms[i]
-                        * mind_model.skl.bones[i].global_matrix
+
+                    self.bones[line_index + 1] = mind_model.joints_transforms[i]
+                        * mind_model.skeleton.joints[i].global_matrix
                         * glam::Vec4::ONE;
+
                     line_index += 2;
                 }
             }
-            self.lines.as_ptr()
+            self.bones.as_ptr()
         } else {
-            self.lines_tpose
+            self.bones_tpose
         };
 
         unsafe {
             gl::Disable(gl::DEPTH_TEST);
             gl::LineWidth(2.0f32);
 
-            self.shader.as_ref().unwrap().enable();
+            self.shader.as_ref().enable();
             gl::UniformMatrix4fv(
                 self.mvp_ref,
                 1,
@@ -117,15 +116,15 @@ impl Lines {
 
             gl::BindVertexArray(self.vao);
 
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo[0]);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.bo[0]);
             gl::BufferSubData(
                 gl::ARRAY_BUFFER,
                 0,
-                (self.lines.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
-                lines_ptr as *const c_void,
+                (self.bones.len() * mem::size_of::<glam::Vec4>()) as GLsizeiptr,
+                bones_ptr as *const c_void,
             );
 
-            gl::DrawArrays(gl::LINES, 0, self.lines.len() as GLsizei);
+            gl::DrawArrays(gl::LINES, 0, self.bones.len() as GLsizei);
 
             gl::BindVertexArray(0);
         }
@@ -136,10 +135,10 @@ impl Lines {
     }
 }
 
-impl Drop for Lines {
+impl Drop for Bones {
     fn drop(&mut self) {
         unsafe {
-            gl::DeleteBuffers(2, self.vbo.as_ptr());
+            gl::DeleteBuffers(2, self.bo.as_ptr());
             gl::DeleteVertexArrays(1, &self.vao);
         }
     }

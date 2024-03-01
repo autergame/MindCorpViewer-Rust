@@ -8,7 +8,7 @@ League Of Legends Model Viewer Using Rust
 
 ## How to use: 
 * Step 1: Download mindcorpviewer-rust_"your system"
-* Step 2: Extract skn, skl, dds files and animations folder with: https://github.com/Crauzer/Obsidian
+* Step 2: Extract skn, skl, dds or tex files and animations folder with: https://github.com/Crauzer/Obsidian
 * Step 3: Add model in program or modify the config.json
 
 ![alt text](assets/MindCorpViewer-Rust_image.png)

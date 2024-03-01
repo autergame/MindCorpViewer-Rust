@@ -5,9 +5,10 @@ use std::{
     io::{Cursor, Read},
 };
 
-use gls::glam_read;
-
-use lol::{hasher, Skeleton};
+use crate::{
+    gls::glam_read,
+    lol::{hasher, Skeleton},
+};
 
 enum FrameDataType {
     Rotation = 0,
@@ -32,7 +33,7 @@ struct FrameIndices {
     pub scale_index: u16,
 }
 
-pub struct BoneAnm {
+pub struct JointAnm {
     pub hash: u32,
     pub translations: Vec<(f32, glam::Vec3)>,
     pub rotations: Vec<(f32, glam::Quat)>,
@@ -43,7 +44,7 @@ pub struct Animation {
     pub fps: f32,
     pub duration: f32,
     pub frame_delay: f32,
-    pub bones: Vec<BoneAnm>,
+    pub joints: Vec<JointAnm>,
 }
 
 impl Animation {
@@ -81,9 +82,9 @@ impl Animation {
 
         reader.set_position(reader.position() + 12);
 
-        let bone_count = reader
+        let joint_count = reader
             .read_u32::<LittleEndian>()
-            .expect("Could not read ANM bone count");
+            .expect("Could not read ANM joint count");
         let entry_count = reader
             .read_i32::<LittleEndian>()
             .expect("Could not read ANM entry count");
@@ -118,8 +119,8 @@ impl Animation {
 
         reader.set_position((hashes_offset + 12) as u64);
 
-        let mut hash_entries: Vec<u32> = Vec::with_capacity(bone_count as usize);
-        for _ in 0..bone_count {
+        let mut hash_entries: Vec<u32> = Vec::with_capacity(joint_count as usize);
+        for _ in 0..joint_count {
             hash_entries.push(
                 reader
                     .read_u32::<LittleEndian>()
@@ -137,7 +138,7 @@ impl Animation {
                 .read_u16::<LittleEndian>()
                 .expect("Could not read ANM compressed time");
 
-            let bone_index = reader.read_u8().expect("Could not read ANM bone index");
+            let joint_index = reader.read_u8().expect("Could not read ANM joint index");
 
             let data_type = reader.read_u8().expect("Could not read ANM data type");
 
@@ -148,28 +149,28 @@ impl Animation {
             match FrameDataType::from_u8(data_type) {
                 FrameDataType::Rotation => {
                     compressed_rotations
-                        .entry(bone_index)
-                        .or_insert_with(Vec::new)
+                        .entry(joint_index)
+                        .or_default()
                         .push((compressed_time, compressed_data));
                 }
                 FrameDataType::Translation => {
                     compressed_translations
-                        .entry(bone_index)
-                        .or_insert_with(Vec::new)
+                        .entry(joint_index)
+                        .or_default()
                         .push((compressed_time, compressed_data));
                 }
                 FrameDataType::Scale => {
                     compressed_scales
-                        .entry(bone_index)
-                        .or_insert_with(Vec::new)
+                        .entry(joint_index)
+                        .or_default()
                         .push((compressed_time, compressed_data));
                 }
             }
         }
 
-        let mut bones: Vec<BoneAnm> = Vec::with_capacity(bone_count as usize);
-        for i in 0..bone_count {
-            let mut bone_anm = BoneAnm {
+        let mut joints: Vec<JointAnm> = Vec::with_capacity(joint_count as usize);
+        for i in 0..joint_count {
+            let mut joint_anm = JointAnm {
                 hash: hash_entries[i as usize],
                 translations: vec![],
                 rotations: vec![],
@@ -191,7 +192,7 @@ impl Animation {
                 let uncompressed_translation =
                     uncompress_vec3(translation_min, translation_max, *compressed_data);
 
-                bone_anm
+                joint_anm
                     .translations
                     .push((uncompressed_time, uncompressed_translation));
             }
@@ -200,7 +201,7 @@ impl Animation {
                 let uncompressed_time = uncompress_time(*compressed_time, duration);
                 let uncompressed_scale = uncompress_vec3(scale_min, scale_max, *compressed_data);
 
-                bone_anm
+                joint_anm
                     .scales
                     .push((uncompressed_time, uncompressed_scale));
             }
@@ -209,12 +210,12 @@ impl Animation {
                 let uncompressed_time = uncompress_time(*compressed_time, duration);
                 let uncompressed_rotation = uncompress_quaternion(*compressed_data);
 
-                bone_anm
+                joint_anm
                     .rotations
                     .push((uncompressed_time, uncompressed_rotation));
             }
 
-            bones.push(bone_anm);
+            joints.push(joint_anm);
         }
 
         print!("ANM version {version} was succesfully loaded: ");
@@ -226,16 +227,16 @@ impl Animation {
             fps,
             duration,
             frame_delay,
-            bones,
+            joints,
         }
     }
 
     fn read_v5(reader: &mut Cursor<&Vec<u8>>) -> Animation {
         reader.set_position(reader.position() + 16);
 
-        let bone_count = reader
+        let joint_count = reader
             .read_u32::<LittleEndian>()
-            .expect("Could not read ANM bone count");
+            .expect("Could not read ANM joint count");
         let frame_count = reader
             .read_u32::<LittleEndian>()
             .expect("Could not read ANM frame count");
@@ -298,9 +299,9 @@ impl Animation {
 
         reader.set_position((frame_offset + 12) as u64);
 
-        let mut bones: Vec<BoneAnm> = Vec::with_capacity(bone_count as usize);
-        for i in 0..bone_count {
-            bones.push(BoneAnm {
+        let mut joints: Vec<JointAnm> = Vec::with_capacity(joint_count as usize);
+        for i in 0..joint_count {
+            joints.push(JointAnm {
                 hash: hashes[i as usize],
                 translations: vec![],
                 rotations: vec![],
@@ -310,7 +311,7 @@ impl Animation {
 
         let mut current_time = 0.0f32;
         for _ in 0..frame_count {
-            for j in 0..bone_count {
+            for j in 0..joint_count {
                 let translation_index = reader
                     .read_u16::<LittleEndian>()
                     .expect("Could not read ANM translation index");
@@ -323,11 +324,11 @@ impl Animation {
 
                 let rotation = uncompress_quaternion(rotations[rotation_index as usize]);
 
-                bones[j as usize].rotations.push((current_time, rotation));
-                bones[j as usize]
+                joints[j as usize].rotations.push((current_time, rotation));
+                joints[j as usize]
                     .scales
                     .push((current_time, vectors[scale_index as usize]));
-                bones[j as usize]
+                joints[j as usize]
                     .translations
                     .push((current_time, vectors[translation_index as usize]));
             }
@@ -343,16 +344,16 @@ impl Animation {
             fps,
             duration,
             frame_delay,
-            bones,
+            joints,
         }
     }
 
     fn read_v4(reader: &mut Cursor<&Vec<u8>>) -> Animation {
         reader.set_position(reader.position() + 16);
 
-        let bone_count = reader
+        let joint_count = reader
             .read_u32::<LittleEndian>()
-            .expect("Could not read ANM bone count");
+            .expect("Could not read ANM joint count");
         let frame_count = reader
             .read_u32::<LittleEndian>()
             .expect("Could not read ANM frame count");
@@ -395,12 +396,12 @@ impl Animation {
 
         reader.set_position((frame_offset + 12) as u64);
 
-        let mut bone_map: BTreeMap<u32, Vec<FrameIndices>> = BTreeMap::new();
-        for _ in 0..bone_count {
+        let mut joint_map: BTreeMap<u32, Vec<FrameIndices>> = BTreeMap::new();
+        for _ in 0..joint_count {
             for _ in 0..frame_count {
-                let bone_hash = reader
+                let joint_hash = reader
                     .read_u32::<LittleEndian>()
-                    .expect("Could not read ANM bone hash");
+                    .expect("Could not read ANM joint hash");
 
                 let translation_index = reader
                     .read_u16::<LittleEndian>()
@@ -414,22 +415,19 @@ impl Animation {
 
                 reader.set_position(reader.position() + 2);
 
-                bone_map
-                    .entry(bone_hash)
-                    .or_insert_with(Vec::new)
-                    .push(FrameIndices {
-                        translation_index,
-                        rotation_index,
-                        scale_index,
-                    });
+                joint_map.entry(joint_hash).or_default().push(FrameIndices {
+                    translation_index,
+                    rotation_index,
+                    scale_index,
+                });
             }
         }
 
-        let mut bones: Vec<BoneAnm> = Vec::with_capacity(bone_count as usize);
-        for (hash, frame_indices) in bone_map {
+        let mut joints: Vec<JointAnm> = Vec::with_capacity(joint_count as usize);
+        for (hash, frame_indices) in joint_map {
             let mut current_time = 0.0f32;
 
-            let mut bone_anm = BoneAnm {
+            let mut joint_anm = JointAnm {
                 hash,
                 translations: Vec::with_capacity(frame_indices.len()),
                 rotations: Vec::with_capacity(frame_indices.len()),
@@ -445,14 +443,14 @@ impl Animation {
                 let rotation = rotations[rotation_index as usize];
                 let scale = vectors[scale_index as usize];
 
-                bone_anm.translations.push((current_time, translation));
-                bone_anm.rotations.push((current_time, rotation));
-                bone_anm.scales.push((current_time, scale));
+                joint_anm.translations.push((current_time, translation));
+                joint_anm.rotations.push((current_time, rotation));
+                joint_anm.scales.push((current_time, scale));
 
                 current_time += frame_delay;
             }
 
-            bones.push(bone_anm);
+            joints.push(joint_anm);
         }
 
         print!("ANM version 4 was succesfully loaded: ");
@@ -464,16 +462,16 @@ impl Animation {
             fps,
             duration,
             frame_delay,
-            bones,
+            joints,
         }
     }
 
     fn read_legacy(reader: &mut Cursor<&Vec<u8>>, version: u32) -> Animation {
         reader.set_position(reader.position() + 4);
 
-        let bone_count = reader
+        let joint_count = reader
             .read_u32::<LittleEndian>()
-            .expect("Could not read ANM bone count");
+            .expect("Could not read ANM joint count");
         let frame_count = reader
             .read_u32::<LittleEndian>()
             .expect("Could not read ANM frame count");
@@ -485,12 +483,12 @@ impl Animation {
         let frame_delay = 1.0f32 / fps;
         let duration = frame_count as f32 * frame_delay;
 
-        let mut bones: Vec<BoneAnm> = Vec::with_capacity(bone_count as usize);
-        for _ in 0..bone_count {
+        let mut joints: Vec<JointAnm> = Vec::with_capacity(joint_count as usize);
+        for _ in 0..joint_count {
             let mut string = vec![0u8; 32];
             reader
                 .read_exact(&mut string)
-                .expect("Could not read ANM bone name");
+                .expect("Could not read ANM joint name");
             let name = String::from(
                 String::from_utf8(string)
                     .expect("Invalid UTF-8 sequence")
@@ -500,7 +498,7 @@ impl Animation {
 
             reader.set_position(reader.position() + 4);
 
-            let mut bone_anm = BoneAnm {
+            let mut joint_anm = JointAnm {
                 hash,
                 translations: Vec::with_capacity(frame_count as usize),
                 rotations: Vec::with_capacity(frame_count as usize),
@@ -512,14 +510,14 @@ impl Animation {
                 let rotation = glam_read::quat_f32::<LittleEndian>(reader);
                 let translation = glam_read::vec3_f32::<LittleEndian>(reader);
 
-                bone_anm.rotations.push((current_time, rotation));
-                bone_anm.translations.push((current_time, translation));
-                bone_anm.scales.push((current_time, glam::Vec3::ONE));
+                joint_anm.rotations.push((current_time, rotation));
+                joint_anm.translations.push((current_time, translation));
+                joint_anm.scales.push((current_time, glam::Vec3::ONE));
 
                 current_time += frame_delay;
             }
 
-            bones.push(bone_anm);
+            joints.push(joint_anm);
         }
 
         print!("ANM version {version} was succesfully loaded: ");
@@ -531,7 +529,7 @@ impl Animation {
             fps,
             duration,
             frame_delay,
-            bones,
+            joints,
         }
     }
 }
@@ -604,38 +602,38 @@ pub fn find_in_nearest_time<T: Copy + Default>(vector: &Vec<(f32, T)>, time: f32
 }
 
 pub fn run_animation(
-    bone_transforms: &mut [glam::Mat4],
+    joint_transforms: &mut [glam::Mat4],
     animation: &Animation,
     skeleton: &Skeleton,
     time: f32,
 ) {
     if time <= animation.duration {
         let mut parent_transforms: Vec<glam::Mat4> = skeleton
-            .bones
+            .joints
             .iter()
-            .map(|bone| bone.local_matrix)
+            .map(|joint| joint.local_matrix)
             .collect();
-        for i in 0..skeleton.bones.len() {
-            let skeleton_bone = &skeleton.bones[i];
+        for i in 0..skeleton.joints.len() {
+            let skeleton_joint = &skeleton.joints[i];
 
-            let mut global_transform = if skeleton_bone.parent_id != -1 {
-                parent_transforms[skeleton_bone.parent_id as usize]
+            let mut global_transform = if skeleton_joint.parent_id != -1 {
+                parent_transforms[skeleton_joint.parent_id as usize]
             } else {
                 glam::Mat4::IDENTITY
             };
 
-            let animation_bone = animation
-                .bones
+            let animation_joint = animation
+                .joints
                 .iter()
-                .find(|&bone| bone.hash == skeleton_bone.hash);
+                .find(|&joint| joint.hash == skeleton_joint.hash);
 
-            if let Some(bone) = animation_bone {
+            if let Some(joint) = animation_joint {
                 let (translation_min, translation_max, translation_lerp_value) =
-                    find_in_nearest_time(&bone.translations, time);
+                    find_in_nearest_time(&joint.translations, time);
                 let (rotation_min, rotation_max, rotation_lerp_value) =
-                    find_in_nearest_time(&bone.rotations, time);
+                    find_in_nearest_time(&joint.rotations, time);
                 let (scale_min, scale_max, scale_lerp_value) =
-                    find_in_nearest_time(&bone.scales, time);
+                    find_in_nearest_time(&joint.scales, time);
 
                 let translation = translation_min.lerp(translation_max, translation_lerp_value);
                 let rotation = rotation_min.lerp(rotation_max, rotation_lerp_value);
@@ -644,11 +642,11 @@ pub fn run_animation(
                 global_transform *=
                     glam::Mat4::from_scale_rotation_translation(scale, rotation, translation);
             } else {
-                global_transform *= skeleton_bone.local_matrix;
+                global_transform *= skeleton_joint.local_matrix;
             }
 
             parent_transforms[i] = global_transform;
-            bone_transforms[i] = global_transform * skeleton_bone.inverse_global_matrix;
+            joint_transforms[i] = global_transform * skeleton_joint.inverse_global_matrix;
         }
     }
 }

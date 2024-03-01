@@ -1,11 +1,9 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
-use gls::glam_read;
+use crate::{gls::glam_read, lol::hasher};
 
-use lol::hasher;
-
-pub struct Bone {
+pub struct Joint {
     pub name: String,
     pub hash: u32,
     pub id: i16,
@@ -26,7 +24,7 @@ impl Type {
         match value {
             0x746C6B73 => Type::Classic,
             0x22FD4FC3 => Type::Version2,
-            _ => panic!("Unknown SKL magic"),
+            _ => panic!("SKL has no valid signature"),
         }
     }
 }
@@ -34,8 +32,8 @@ impl Type {
 pub struct Skeleton {
     pub stype: Type,
     pub version: u32,
-    pub bones: Vec<Bone>,
-    pub bone_indices: Vec<u16>,
+    pub joints: Vec<Joint>,
+    pub influences: Vec<u16>,
 }
 
 impl Skeleton {
@@ -55,10 +53,10 @@ impl Skeleton {
             Type::Version2 => Self::read_new(&mut reader),
         };
 
-        for i in 0..skeleton.bones.len() {
-            let parent_id = skeleton.bones[i].parent_id;
+        for i in 0..skeleton.joints.len() {
+            let parent_id = skeleton.joints[i].parent_id;
             if parent_id != -1 {
-                if let Some(parent) = skeleton.bones.get_mut(parent_id as usize) {
+                if let Some(parent) = skeleton.joints.get_mut(parent_id as usize) {
                     parent.children.push(i);
                 }
             }
@@ -82,16 +80,16 @@ impl Skeleton {
 
         reader.set_position(reader.position() + 4);
 
-        let bone_count = reader
+        let joint_count = reader
             .read_u32::<LittleEndian>()
-            .expect("Could not read SKL bone count");
+            .expect("Could not read SKL joint count");
 
-        let mut bones: Vec<Bone> = Vec::with_capacity(bone_count as usize);
-        for i in 0..bone_count {
+        let mut joints: Vec<Joint> = Vec::with_capacity(joint_count as usize);
+        for i in 0..joint_count {
             let mut string = vec![0u8; 32];
             reader
                 .read_exact(&mut string)
-                .expect("Could not read SKL bone name");
+                .expect("Could not read SKL joint name");
             let name = String::from(
                 String::from_utf8(string)
                     .expect("Invalid UTF-8 sequence")
@@ -101,7 +99,7 @@ impl Skeleton {
 
             let parent_id = reader
                 .read_i32::<LittleEndian>()
-                .expect("Could not read SKL bone parent id") as i16;
+                .expect("Could not read SKL joint parent id") as i16;
 
             reader.set_position(reader.position() + 4);
 
@@ -111,7 +109,7 @@ impl Skeleton {
                 for j in 0..4 {
                     transform[j][i] = reader
                         .read_f32::<LittleEndian>()
-                        .expect("Could not read SKL bone global matrix");
+                        .expect("Could not read SKL joint global matrix");
                 }
             }
 
@@ -124,7 +122,7 @@ impl Skeleton {
 
             let inverse_global_matrix = global_matrix.inverse();
 
-            bones.push(Bone {
+            joints.push(Joint {
                 name,
                 hash,
                 id: i as i16,
@@ -136,37 +134,37 @@ impl Skeleton {
             });
         }
 
-        for i in 0..bone_count as usize {
-            if bones[i].parent_id == -1 {
-                bones[i].local_matrix = bones[i].global_matrix;
+        for i in 0..joint_count as usize {
+            if joints[i].parent_id == -1 {
+                joints[i].local_matrix = joints[i].global_matrix;
             } else {
-                let parent = &bones[bones[i].parent_id as usize];
-                bones[i].local_matrix = bones[i].global_matrix * parent.inverse_global_matrix;
+                let parent = &joints[joints[i].parent_id as usize];
+                joints[i].local_matrix = joints[i].global_matrix * parent.inverse_global_matrix;
             }
         }
 
-        let bone_indices = match version {
+        let influences = match version {
             1 => {
-                let mut bone_indices = Vec::with_capacity(bone_count as usize);
-                for i in 0..bone_count {
-                    bone_indices.push(i as u16);
+                let mut influences = Vec::with_capacity(joint_count as usize);
+                for i in 0..joint_count {
+                    influences.push(i as u16);
                 }
-                bone_indices
+                influences
             }
             2 => {
-                let bone_index_count = reader
+                let joint_index_count = reader
                     .read_u32::<LittleEndian>()
-                    .expect("Could not read SKL bone index count");
+                    .expect("Could not read SKL influences count");
 
-                let mut bone_indices = Vec::with_capacity(bone_index_count as usize);
-                for _ in 0..bone_index_count {
-                    bone_indices.push(
+                let mut influences = Vec::with_capacity(joint_index_count as usize);
+                for _ in 0..joint_index_count {
+                    influences.push(
                         reader
                             .read_u32::<LittleEndian>()
-                            .expect("Could not read SKL bone index") as u16,
+                            .expect("Could not read SKL influences") as u16,
                     );
                 }
-                bone_indices
+                influences
             }
             _ => {
                 panic!("Unknown SKL classic version")
@@ -175,14 +173,14 @@ impl Skeleton {
 
         print!("SKL version {version} was succesfully loaded: ");
         print!("Type: Classic ");
-        print!("Bones count: {} ", bones.len());
-        println!("Bones indices count: {}", bone_indices.len());
+        print!("Joints count: {} ", joints.len());
+        println!("Joints influences: {}", influences.len());
 
         Skeleton {
             stype: Type::Classic,
             version,
-            bones,
-            bone_indices,
+            joints,
+            influences,
         }
     }
 
@@ -195,41 +193,41 @@ impl Skeleton {
 
         reader.set_position(reader.position() + 2);
 
-        let bone_count = reader
+        let joint_count = reader
             .read_u16::<LittleEndian>()
-            .expect("Could not read SKL bone count");
-        let bone_index_count = reader
+            .expect("Could not read SKL joint count");
+        let joint_index_count = reader
             .read_u32::<LittleEndian>()
-            .expect("Could not read SKL bone index count");
-        let bone_offset = reader
+            .expect("Could not read SKL influences count");
+        let joint_offset = reader
             .read_u32::<LittleEndian>()
-            .expect("Could not read SKL bone offset");
+            .expect("Could not read SKL joint offset");
 
         reader.set_position(reader.position() + 4);
 
-        let bone_index_offset = reader
+        let joint_index_offset = reader
             .read_u32::<LittleEndian>()
-            .expect("Could not read SKL bone index offset");
+            .expect("Could not read SKL influences offset");
 
-        reader.set_position(bone_offset as u64);
+        reader.set_position(joint_offset as u64);
 
-        let mut bones: Vec<Bone> = Vec::with_capacity(bone_count as usize);
-        for _ in 0..bone_count {
+        let mut joints: Vec<Joint> = Vec::with_capacity(joint_count as usize);
+        for _ in 0..joint_count {
             reader.set_position(reader.position() + 2);
 
             let id = reader
                 .read_i16::<LittleEndian>()
-                .expect("Could not read SKL bone id");
+                .expect("Could not read SKL joint id");
 
             let parent_id = reader
                 .read_i16::<LittleEndian>()
-                .expect("Could not read SKL bone parent id");
+                .expect("Could not read SKL joint parent id");
 
             reader.set_position(reader.position() + 2);
 
             let hash = reader
                 .read_u32::<LittleEndian>()
-                .expect("Could not read SKL bone hash");
+                .expect("Could not read SKL joint hash");
 
             reader.set_position(reader.position() + 4);
 
@@ -254,7 +252,7 @@ impl Skeleton {
 
             let name_offset = reader
                 .read_i32::<LittleEndian>()
-                .expect("Could not read SKL bone name offset");
+                .expect("Could not read SKL joint name offset");
 
             let return_offset = reader.position();
 
@@ -262,7 +260,7 @@ impl Skeleton {
 
             let mut string: Vec<u8> = vec![];
             loop {
-                let byte = reader.read_u8().expect("Could not read SKL bone name");
+                let byte = reader.read_u8().expect("Could not read SKL joint name");
                 if byte == 0 {
                     break;
                 }
@@ -272,7 +270,7 @@ impl Skeleton {
 
             reader.set_position(return_offset);
 
-            bones.push(Bone {
+            joints.push(Joint {
                 name,
                 hash,
                 id,
@@ -284,27 +282,27 @@ impl Skeleton {
             });
         }
 
-        reader.set_position(bone_index_offset as u64);
+        reader.set_position(joint_index_offset as u64);
 
-        let mut bone_indices = Vec::with_capacity(bone_index_count as usize);
-        for _ in 0..bone_index_count {
-            bone_indices.push(
+        let mut influences = Vec::with_capacity(joint_index_count as usize);
+        for _ in 0..joint_index_count {
+            influences.push(
                 reader
                     .read_u16::<LittleEndian>()
-                    .expect("Could not read SKL bone index"),
+                    .expect("Could not read SKL influences"),
             );
         }
 
         print!("SKL version {version} was succesfully loaded: ");
         print!("Type: Version2 ");
-        print!("Bones count: {} ", bones.len());
-        println!("Bones indices count: {}", bone_indices.len());
+        print!("Joints count: {} ", joints.len());
+        println!("Joints influences: {}", influences.len());
 
         Skeleton {
             stype: Type::Version2,
             version,
-            bones,
-            bone_indices,
+            joints,
+            influences,
         }
     }
 }

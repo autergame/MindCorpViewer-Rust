@@ -1,13 +1,11 @@
 #version 330
 //author https://github.com/autergame
 
-in vec3 UV;
+in vec3 Color;
 
 out vec4 FragColor;
 
-uniform samplerCube Skybox;
-
 void main()
-{    
-    FragColor = texture(Skybox, UV);
+{       
+    FragColor = vec4(Color, 1.0);
 }
